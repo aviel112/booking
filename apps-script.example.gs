@@ -20,6 +20,7 @@ var DEFAULT_SETTINGS = {
   slotMin: 60,
   minNoticeH: 3,
   phone: '',
+  meetLink: '',
   weekTemplate: [
     {on:true,  start:'07:00', end:'15:00'},
     {on:true,  start:'07:00', end:'15:00'},
@@ -92,6 +93,7 @@ function saveSettings_(s) {
   sh.appendRow(['slotMin', s.slotMin]);
   sh.appendRow(['minNoticeH', s.minNoticeH]);
   sh.appendRow(['phone', s.phone || '']);
+  sh.appendRow(['meetLink', s.meetLink || '']);
   sh.appendRow(['weekTemplate', JSON.stringify(s.weekTemplate)]);
 }
 
@@ -286,11 +288,15 @@ function approve_(id) {
   var settings = getSettings_();
   var start = ilDate_(bk.date, bk.time);
   var end = new Date(start.getTime() + settings.slotMin * 60000);
+  var opts = {
+    description: 'טלפון: ' + bk.phone + (bk.note ? '\nהערה: ' + bk.note : '') +
+      (settings.meetLink ? '\nקישור לפגישה: ' + settings.meetLink : '') + '\nנקבע דרך מערכת הזימונים',
+    guests: bk.email, sendInvites: true
+  };
+  if (settings.meetLink) opts.location = settings.meetLink;
   var ev = CalendarApp.getDefaultCalendar().createEvent(
-    '🏋️ אימון — ' + bk.name,
-    start, end,
-    { description: 'טלפון: ' + bk.phone + (bk.note ? '\nהערה: ' + bk.note : '') + '\nנקבע דרך מערכת הזימונים',
-      guests: bk.email, sendInvites: true }
+    '📅 פגישה — ' + bk.name,
+    start, end, opts
   );
   setBookingFields_(bk._row, { status: 'approved', eventId: ev.getId() });
   mailClient_(bk, 'approved');
@@ -314,8 +320,8 @@ function cancel_(id, byAdmin) {
   }
   setBookingFields_(bk._row, { status: 'cancelled' });
   if (byAdmin) mailClient_(bk, 'cancelled');
-  else MailApp.sendEmail({ to: NOTIFY_EMAIL, subject: '❌ ביטול אימון — ' + bk.name + ' | ' + heDate_(bk.date) + ' ' + bk.time,
-    htmlBody: mailShell_('המתאמן ביטל את הפגישה', '<b>' + esc_(bk.name) + '</b> ביטל את האימון של ' + heDate_(bk.date) + ' בשעה ' + bk.time + '.<br>השעה חזרה להיות פנויה במערכת.') });
+  else MailApp.sendEmail({ to: NOTIFY_EMAIL, subject: '❌ ביטול פגישה — ' + bk.name + ' | ' + heDate_(bk.date) + ' ' + bk.time,
+    htmlBody: mailShell_('המתאמן ביטל את הפגישה', '<b>' + esc_(bk.name) + '</b> ביטל את הפגישה של ' + heDate_(bk.date) + ' בשעה ' + bk.time + '.<br>השעה חזרה להיות פנויה במערכת.') });
   return { ok: true, msg: 'הפגישה בוטלה' };
 }
 
@@ -383,28 +389,30 @@ function notifyAviel_(id, b) {
     '<div style="color:#8892b0;font-size:.8rem;margin-top:10px">באישור — נוצר אירוע ביומן שלך והמתאמן מקבל זימון אוטומטי למייל.</div>';
   MailApp.sendEmail({
     to: NOTIFY_EMAIL,
-    subject: '🔔 בקשת אימון חדשה — ' + b.name + ' | ' + heDate_(b.date) + ' ' + b.time,
-    htmlBody: mailShell_('בקשת אימון חדשה ממתינה לאישור שלך', inner, btns)
+    subject: '🔔 בקשת פגישה חדשה — ' + b.name + ' | ' + heDate_(b.date) + ' ' + b.time,
+    htmlBody: mailShell_('בקשת פגישה חדשה ממתינה לאישור שלך', inner, btns)
   });
 }
 
 function mailClient_(bk, kind) {
   var subj, title, inner;
   if (kind === 'approved') {
-    subj = '✅ האימון שלך אושר — ' + heDate_(bk.date) + ' בשעה ' + bk.time;
-    title = 'האימון אושר — נתראה במכון! 💪';
-    inner = 'היי ' + esc_(bk.name) + ',<br>אביאל אישר את האימון שלך:<br><b style="color:#00d68f">' +
-      heDate_(bk.date) + ' · ' + bk.time + '</b><br><br>זימון ליומן גוגל נשלח אליך בנפרד — אשר אותו וזה ביומן.<br>מגיעים עם מים, מגבת ואנרגיות.';
+    subj = '✅ הפגישה שלך אושרה — ' + heDate_(bk.date) + ' בשעה ' + bk.time;
+    title = 'הפגישה אושרה — נתראה! 🤝';
+    var lnk = getSettings_().meetLink;
+    inner = 'היי ' + esc_(bk.name) + ',<br>אביאל אישר את הפגישה שלך:<br><b style="color:#00d68f">' +
+      heDate_(bk.date) + ' · ' + bk.time + '</b><br><br>זימון ליומן גוגל נשלח אליך בנפרד — אשר אותו וזה ביומן.' +
+      (lnk ? '<br><br><a href="' + lnk + '" style="display:inline-block;background:#00d68f;color:#06281c;font-weight:bold;padding:12px 26px;border-radius:10px;text-decoration:none">🎥 קישור להצטרפות לפגישה</a>' : '');
   } else if (kind === 'rejected') {
-    subj = 'לגבי בקשת האימון שלך — ' + heDate_(bk.date) + ' ' + bk.time;
+    subj = 'לגבי בקשת הפגישה שלך — ' + heDate_(bk.date) + ' ' + bk.time;
     title = 'השעה הזו לא מסתדרת הפעם';
     inner = 'היי ' + esc_(bk.name) + ',<br>השעה שביקשת (' + heDate_(bk.date) + ' · ' + bk.time +
       ') לא מתאפשרת.<br><br><a href="' + APP_URL + '" style="color:#00d68f;font-weight:bold">בחר שעה אחרת כאן ←</a>';
   } else {
-    subj = 'האימון בוטל — ' + heDate_(bk.date) + ' ' + bk.time;
-    title = 'האימון בוטל';
-    inner = 'היי ' + esc_(bk.name) + ',<br>האימון של ' + heDate_(bk.date) + ' בשעה ' + bk.time +
-      ' בוטל.<br><br><a href="' + APP_URL + '" style="color:#00d68f;font-weight:bold">לקביעת מועד חדש ←</a>';
+    subj = 'הפגישה בוטלה — ' + heDate_(bk.date) + ' ' + bk.time;
+    title = 'הפגישה בוטלה';
+    inner = 'היי ' + esc_(bk.name) + ',<br>הפגישה של ' + heDate_(bk.date) + ' בשעה ' + bk.time +
+      ' בוטלה.<br><br><a href="' + APP_URL + '" style="color:#00d68f;font-weight:bold">לקביעת מועד חדש ←</a>';
   }
   try {
     MailApp.sendEmail({ to: bk.email, subject: subj, htmlBody: mailShell_(title, inner) });
@@ -421,9 +429,9 @@ function dailyDigest() {
   var list = getBookings_().filter(function (b) { return b.date === today && b.status === 'approved'; })
     .sort(function (a, b) { return a.time < b.time ? -1 : 1; });
   if (!list.length) return;
-  var inner = '<b>' + list.length + ' אימונים היום:</b><br><br>' + list.map(function (b) {
+  var inner = '<b>' + list.length + ' פגישות היום:</b><br><br>' + list.map(function (b) {
     return '🕐 <b>' + b.time + '</b> — ' + esc_(b.name) + ' · <a href="tel:' + esc_(b.phone) + '" style="color:#00d68f">' + esc_(b.phone) + '</a>' + (b.note ? '<br><span style="color:#8892b0;font-size:.85rem">📝 ' + esc_(b.note) + '</span>' : '');
   }).join('<br><br>');
-  MailApp.sendEmail({ to: NOTIFY_EMAIL, subject: '☀️ הלוז שלך להיום — ' + list.length + ' אימונים | ' + heDate_(today),
+  MailApp.sendEmail({ to: NOTIFY_EMAIL, subject: '☀️ הלוז שלך להיום — ' + list.length + ' פגישות | ' + heDate_(today),
     htmlBody: mailShell_('בוקר טוב אלוף, זה הלוז של היום', inner) });
 }

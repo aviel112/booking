@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>קביעת אימון עם אביאל | אימון אישי 1:1</title>
-<meta name="description" content="קובעים אימון אישי עם אביאל — בוחרים יום ושעה, מקבלים אישור וזימון ליומן.">
+<title>קביעת פגישה עם אביאל | ליווי אישי 1:1</title>
+<meta name="description" content="קובעים פגישה עם אביאל — בוחרים יום ושעה, מקבלים אישור וזימון ליומן.">
 <meta name="theme-color" content="#07090f">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -246,19 +246,19 @@ footer{position:relative;z-index:1;text-align:center;color:var(--mut);font-size:
 <body>
 
 <div class="hero">
-  <button class="admin-link" id="adminBtn" title="כניסת מאמן">⚙️</button>
-  <div class="badge"><i></i> פותחים מקום לאימון הבא</div>
-  <h1>קובעים אימון <em>אחד-על-אחד</em><br>עם אביאל</h1>
+  <button class="admin-link" id="adminBtn" title="כניסת מנהל">⚙️</button>
+  <div class="badge"><i></i> פותחים זמן לפגישה הבאה</div>
+  <h1>קובעים פגישה <em>אחד-על-אחד</em><br>עם אביאל</h1>
   <div class="sub">בוחרים יום ושעה שנוחים לך, אני מאשר —<br>והזימון נוחת לך ביומן. פשוט ככה.</div>
   <div class="chips">
-    <span>🤝 מתאמנים יחד, לא מהצד</span>
+    <span>🤝 ליווי אישי וצמוד</span>
     <span>📅 זימון אוטומטי ליומן</span>
-    <span>⚡ אישור מהיר בווטסאפ/מייל</span>
+    <span>🎥 אפשרות לפגישת וידאו</span>
   </div>
 </div>
 
 <div class="wrap" id="app"></div>
-<footer>אביאל · אימון אישי 1:1 · המערכת באישור אישי שלי על כל פגישה</footer>
+<footer>אביאל · ליווי אישי 1:1 · כל פגישה באישור אישי שלי</footer>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -320,7 +320,7 @@ function demoApi(p){
     if(p.op==='list') return Promise.resolve({ok:true, bookings:[
       {id:'d1',date:fmtDate(new Date(t.getTime()+2*864e5)),time:'08:00',name:'דני כהן',phone:'0521234567',email:'a@b.com',note:'כתף רגישה',status:'pending',createdAt:''},
       {id:'d2',date:fmtDate(new Date(t.getTime()+3*864e5)),time:'10:00',name:'רון לוי',phone:'0529876543',email:'c@d.com',note:'',status:'approved',createdAt:''}
-    ], avail: Object.fromEntries(Object.keys(slots).map(d=>[d,{start:'07:00',end:'15:00'}])), settings:{slotMin:60,minNoticeH:3,phone:'',weekTemplate:[{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'12:00'},{on:false,start:'07:00',end:'12:00'}]}});
+    ], avail: Object.fromEntries(Object.keys(slots).map(d=>[d,{start:'07:00',end:'15:00'}])), settings:{slotMin:60,minNoticeH:3,phone:'',meetLink:'',weekTemplate:[{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'12:00'},{on:false,start:'07:00',end:'12:00'}]}});
     return Promise.resolve({ok:true, msg:'בוצע (דמו)'});
   }
   return Promise.resolve({ok:true});
@@ -357,7 +357,7 @@ function renderCal(){
       ${stepper(1)}
       <div class="card">
         <h2>באיזה יום מתאים לך ?</h2>
-        <div class="hint">אימון ${state.slotMin} דקות · רואים רק ימים שאביאל פתח</div>
+        <div class="hint">פגישה של ${state.slotMin} דקות · רואים רק ימים שאביאל פתח</div>
         <div class="cal-head">
           <button class="cal-nav" id="prevM" ${idx>0?'':'disabled'}>›</button>
           <b>${MONTHS[m]} ${y}</b>
@@ -430,7 +430,7 @@ function renderForm(){
         <div class="hint">הבקשה נשלחת לאביאל לאישור — ברגע שיאשר, זימון ליומן אצלך במייל</div>
         <div class="summary">
           <span>📅 <b>${heDate(selDate)}</b></span>
-          <span>🕐 <b>${selTime}</b> · אימון ${state.slotMin} דקות</span>
+          <span>🕐 <b>${selTime}</b> · פגישה של ${state.slotMin} דקות</span>
         </div>
         <div class="field"><label>שם מלא <span class="req">*</span></label>
           <input id="fName" placeholder="ישראל ישראלי" autocomplete="name" value="${esc(saved.name||'')}"></div>
@@ -440,7 +440,7 @@ function renderForm(){
           <input id="fEmail" type="email" placeholder="name@gmail.com" autocomplete="email" value="${esc(saved.email||'')}">
           <div class="note">לכתובת הזו יישלחו האישור והזימון ליומן</div></div>
         <div class="field"><label>משהו שכדאי שאביאל ידע ? (לא חובה)</label>
-          <textarea id="fNote" placeholder="מטרות, פציעות, רמת כושר..."></textarea></div>
+          <textarea id="fNote" placeholder="על מה הפגישה, מטרות, שאלות..."></textarea></div>
         <button class="btn btn-grn" id="confirm">שליחת בקשה לאישור ←</button>
       </div>
     </div>
@@ -488,10 +488,10 @@ function renderDone(){
         <div class="timeline">
           <div class="tl done"><div class="ic">✓</div><div class="tx"><b>הבקשה נשלחה</b><span>אביאל קיבל את הפרטים שלך עכשיו</span></div></div>
           <div class="tl"><div class="ic">⏳</div><div class="tx"><b>ממתין לאישור</b><span>בדרך כלל תוך זמן קצר</span></div></div>
-          <div class="tl"><div class="ic">📅</div><div class="tx"><b>זימון ליומן</b><span>ברגע האישור — מייל + אירוע ביומן גוגל שלך</span></div></div>
+          <div class="tl"><div class="ic">📅</div><div class="tx"><b>זימון ליומן</b><span>ברגע האישור — מייל + אירוע ביומן, כולל קישור הפגישה</span></div></div>
         </div>
         <button class="btn btn-ghost" id="mine" style="margin-bottom:9px">מעקב — הפגישות שלי</button>
-        <button class="btn btn-ghost" id="home">קביעת אימון נוסף</button>
+        <button class="btn btn-ghost" id="home">קביעת פגישה נוספת</button>
       </div>
     </div>
   `;
@@ -574,7 +574,7 @@ function renderAdmin(){
         <button class="tab ${adminTab==='cfg'?'on':''}" data-t="cfg">⚙️ הגדרות</button>
       </div>
       <div id="adminBody"></div>
-      <button class="foot-link" id="exitAdmin">יציאה ממצב מאמן</button>
+      <button class="foot-link" id="exitAdmin">יציאה ממצב ניהול</button>
     </div>
   `;
   app.querySelectorAll('.tab').forEach(b=> b.onclick=()=>{ adminTab=b.dataset.t; renderAdmin(); });
@@ -592,7 +592,7 @@ function renderPending(el){
   el.innerHTML = `
     <div class="card">
       <h2>בקשות ממתינות לאישור</h2>
-      <div class="hint">באישור — אירוע נכנס ליומן שלך והמתאמן מקבל זימון למייל</div>
+      <div class="hint">באישור — אירוע נכנס ליומן שלך והמוזמן מקבל זימון למייל (כולל קישור הפגישה אם הוגדר)</div>
       ${list.length ? list.map(b=>`
         <div class="pend">
           <div class="who">${esc(b.name)}</div>
@@ -610,7 +610,7 @@ function renderPending(el){
     await adminOp('approve',{id:b.dataset.ok}); await loadAdmin(); renderAdmin();
   });
   el.querySelectorAll('[data-no]').forEach(b=> b.onclick=async()=>{
-    if(!confirm('לדחות את הבקשה ? המתאמן יקבל הודעה')) return;
+    if(!confirm('לדחות את הבקשה ? המוזמן יקבל הודעה')) return;
     await adminOp('reject',{id:b.dataset.no}); await loadAdmin(); renderAdmin();
   });
 }
@@ -624,7 +624,7 @@ function renderDiary(el){
 
   function row(b){
     const wa = String(b.phone).replace(/\D/g,'').replace(/^0/,'972');
-    const msg = encodeURIComponent(`היי ${b.name}! מזכיר לך — אימון ${heDate(b.date)} בשעה ${b.time} 💪 נתראה !`);
+    const msg = encodeURIComponent(`היי ${b.name}! מזכיר לך — פגישה ${heDate(b.date)} בשעה ${b.time} 🤝 נתראה !`);
     return `<div class="bk">
       <div class="info"><b>${b.time}</b> · ${esc(b.name)}<div class="mut">${esc(b.phone)}${b.note?' · '+esc(b.note):''}</div></div>
       <div class="acts">
@@ -634,18 +634,18 @@ function renderDiary(el){
     </div>`;
   }
   const groups = Object.keys(byDate).sort().map(d=>
-    `<div class="date-group">${heDate(d)} · ${byDate[d].length} אימונים</div>` + byDate[d].map(row).join('')
+    `<div class="date-group">${heDate(d)} · ${byDate[d].length} פגישות</div>` + byDate[d].map(row).join('')
   ).join('');
 
   el.innerHTML = `
     <div class="card">
-      <h2>אימונים מאושרים (${list.length})</h2>
+      <h2>פגישות מאושרות (${list.length})</h2>
       <div class="hint">💬 — תזכורת בווטסאפ בלחיצה · ✕ — ביטול (מוחק גם מהיומן)</div>
-      ${groups || '<div class="empty">אין אימונים מאושרים קרובים</div>'}
+      ${groups || '<div class="empty">אין פגישות מאושרות קרובות</div>'}
     </div>
   `;
   el.querySelectorAll('.mini.del').forEach(b=> b.onclick=async()=>{
-    if(!confirm('לבטל את האימון ? האירוע יימחק מהיומן והמתאמן יקבל הודעה')) return;
+    if(!confirm('לבטל את האימון ? האירוע יימחק מהיומן והמוזמן יקבל הודעה')) return;
     await adminOp('cancel',{id:b.dataset.id}); await loadAdmin(); renderAdmin();
   });
 }
@@ -673,7 +673,7 @@ function renderAvail(el){
   el.innerHTML = `
     <div class="card">
       <h2>אילו ימים פתוחים ?</h2>
-      <div class="hint">לוחצים על יום כדי לפתוח/לסגור אותו. ירוק = פתוח לקביעת אימונים</div>
+      <div class="hint">לוחצים על יום כדי לפתוח/לסגור אותו. ירוק = פתוח לקביעת פגישות</div>
       <div class="cal-head">
         <button class="cal-nav" id="avPrev">›</button>
         <b>${MONTHS[m]} ${y}</b>
@@ -748,12 +748,15 @@ function renderCfg(el){
     </div>
     <div class="card">
       <h2>הגדרות כלליות</h2>
-      <div class="field"><label>אורך אימון (דקות)</label>
-        <select id="cSlot">${[30,45,60,75,90].map(v=>`<option value="${v}" ${s.slotMin===v?'selected':''}>${v} דקות</option>`).join('')}</select></div>
+      <div class="field"><label>משך פגישה (דקות)</label>
+        <select id="cSlot">${[15,20,30,45,60,75,90].map(v=>`<option value="${v}" ${s.slotMin===v?'selected':''}>${v} דקות</option>`).join('')}</select></div>
       <div class="field"><label>כמה שעות מראש חייבים לקבוע</label>
         <select id="cNotice">${[0,1,2,3,6,12,24].map(v=>`<option value="${v}" ${s.minNoticeH===v?'selected':''}>${v} שעות</option>`).join('')}</select></div>
       <div class="field"><label>הטלפון שלך (לכפתורי ווטסאפ) — פורמט 9725XXXXXXXX</label>
         <input id="cPhone" value="${esc(s.phone||'')}" placeholder="972501234567" inputmode="tel"></div>
+      <div class="field"><label>קישור לפגישה (זום / גוגל מיט) — יצורף אוטומטית לזימון ולמייל האישור</label>
+        <input id="cMeet" value="${esc(s.meetLink||'')}" placeholder="https://meet.google.com/..." dir="ltr">
+        <div class="note">משאירים ריק אם הפגישות פרונטליות</div></div>
       <button class="btn btn-grn" id="saveCfg">שמירת הגדרות</button>
     </div>
   `;
@@ -767,7 +770,7 @@ function renderCfg(el){
       end: row.querySelector('.t-end').value
     }));
     const settings={slotMin:+$('#cSlot').value, minNoticeH:+$('#cNotice').value,
-      phone:$('#cPhone').value.replace(/\D/g,''), weekTemplate:week};
+      phone:$('#cPhone').value.replace(/\D/g,''), meetLink:$('#cMeet').value.trim(), weekTemplate:week};
     const btn=$('#saveCfg'); btn.disabled=true; btn.innerHTML='שומר<span class="spin"></span>';
     await adminOp('saveSettings',{settings});
     adminData.settings=settings;
