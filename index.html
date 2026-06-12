@@ -593,8 +593,14 @@ async function renderMine(){
 /* ---------- admin ---------- */
 async function loadAdmin(){
   app.innerHTML = '<div class="view"><div class="skeleton"></div><div class="skeleton"></div></div>';
-  const r = await apiPost({action:'admin', op:'list', key:adminKey});
-  if(!r.ok){ isAdmin=false; localStorage.removeItem('aviel_admin_key'); toast('קוד שגוי'); view='cal'; render(); return false; }
+  let r;
+  try{ r = await apiPost({action:'admin', op:'list', key:adminKey}); }
+  catch(e){ toast('בעיית תקשורת — נסה שוב'); view='cal'; render(); return false; }
+  if(!r.ok){
+    if(r.error==='unauthorized'){ isAdmin=false; localStorage.removeItem('aviel_admin_key'); toast('קוד שגוי'); }
+    else toast('שגיאה זמנית — נסה שוב');
+    view='cal'; render(); return false;
+  }
   adminData = r;
   return true;
 }
