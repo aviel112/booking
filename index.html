@@ -799,7 +799,7 @@ function renderAvail(el){
   el.innerHTML = `
     <div class="card">
       <h2>אילו ימים פתוחים ?</h2>
-      <div class="hint">לוחצים על יום כדי לפתוח/לסגור אותו. ירוק = פתוח לקביעת פגישות</div>
+      <div class="hint">לוחצים על יום סגור → נפתח אוטומטית לפי השעות הקבועות. לוחצים על יום פתוח (ירוק) → עורכים שעות</div>
       <div class="cal-head">
         <button class="cal-nav" id="avPrev">›</button>
         <b>${MONTHS[m]} ${y}</b>
@@ -809,8 +809,13 @@ function renderAvail(el){
         ${DAY_NAMES.map(n=>`<span class="dow">${n.slice(0,1)}'</span>`).join('')}
         ${cells}
       </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:.75rem;color:var(--mut)">
+        <span style="color:var(--grn);font-weight:900;font-size:.95rem">${openCount}</span>
+        <span>${openCount===0?'ימים פתוחים ב'+MONTHS[m]+' — החודש סגור לחלוטין':'ימים פתוחים ב'+MONTHS[m]}</span>
+      </div>
       <div class="av-tools">
-        <button class="btn btn-grn" id="applyTpl">⚡ פתח את כל ${MONTHS[m]} לפי השעות הקבועות</button>
+        <button class="btn btn-grn" id="applyTpl">⚡ פתח את כל ${MONTHS[m]}</button>
+        <button class="btn btn-ghost" id="closeAll" style="font-size:.78rem;padding:11px 14px;flex:0 0 auto">🔒 סגור הכל</button>
       </div>
       ${avSel && adminData.avail[avSel] ? `
       <div id="dayPanel" style="margin-top:14px;background:rgba(0,214,143,.06);border:1px solid rgba(0,214,143,.3);border-radius:14px;padding:14px">
@@ -821,9 +826,9 @@ function renderAvail(el){
           <span class="dash">–</span>
           <input type="time" id="dpEnd" value="${adminData.avail[avSel].end}">
           <button class="btn btn-grn" id="dpSave" style="width:auto;padding:9px 18px;font-size:.8rem">שמור שעות</button>
-          <button class="btn btn-red" id="dpClose" style="width:auto;padding:9px 14px;font-size:.8rem">סגור את היום</button>
+          <button class="btn btn-red" id="dpClose" style="width:auto;padding:9px 14px;font-size:.8rem">סגור יום זה</button>
         </div>
-      </div>` : `<div class="hint" style="margin:12px 0 0">לוחצים על יום בלוח — נפתח ומופיעות השעות שלו לעריכה</div>`}
+      </div>` : `<div class="hint" style="margin:12px 0 0">לוחצים על יום בלוח — יום סגור יפתח; יום פתוח יאפשר עריכת שעות</div>`}
     </div>
   `;
   $('#avPrev').onclick=()=>{ avMonth=new Date(y,m-1,1); avSel=null; renderAvail(el); };
@@ -861,6 +866,14 @@ function renderAvail(el){
     const btn=$('#applyTpl'); btn.disabled=true; btn.innerHTML='פותח את החודש<span class="spin"></span>';
     const r=await adminOp('applyTemplate',{month:ym});
     if(r.ok){ adminData.avail=r.avail; toast(`${MONTHS[m]} נפתח לפי השעות הקבועות ✓`); }
+    renderAvail(el);
+  };
+  $('#closeAll').onclick=async()=>{
+    if(!openCount) return toast(`אין ימים פתוחים ב${MONTHS[m]}`);
+    if(!confirm(`לסגור את כל ${openCount} הימים הפתוחים ב${MONTHS[m]} ?`)) return;
+    const btn=$('#closeAll'); btn.disabled=true; btn.textContent='סוגר...';
+    const r=await adminOp('setAvail',{remove:openDates});
+    if(r.ok){ adminData.avail=r.avail; avSel=null; toast(`${MONTHS[m]} נסגר לחלוטין`); }
     renderAvail(el);
   };
 
