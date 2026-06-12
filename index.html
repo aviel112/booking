@@ -909,6 +909,17 @@ function renderCfg(el){
         <div class="note">משאירים ריק אם הפגישות פרונטליות</div></div>
       <button class="btn btn-grn" id="saveCfg">שמירת הגדרות</button>
     </div>
+    <div class="card">
+      <h2>📱 SMS אוטומטי (Twilio)</h2>
+      <div class="hint">הגדרה אחת — ומכאן הלקוח מקבל SMS בכל שלב: בקשה / אישור / דחייה / ביטול. גם אתה מקבל SMS על כל בקשה חדשה.<br>נרשמים בחינם ב-<b>twilio.com</b> (אין צורך בכרטיס אשראי לתקופת ניסיון)</div>
+      <div class="field"><label>Account SID</label>
+        <input id="cTwSid" value="${esc(s.twilioSid||'')}" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" dir="ltr" autocomplete="off"></div>
+      <div class="field"><label>Auth Token</label>
+        <input id="cTwToken" type="password" value="${esc(s.twilioToken||'')}" placeholder="••••••••••••••••" dir="ltr" autocomplete="new-password"></div>
+      <div class="field"><label>מספר השולח (מספר Twilio שלך)</label>
+        <input id="cTwFrom" value="${esc(s.twilioFrom||'')}" placeholder="+1xxxxxxxxxx" dir="ltr" inputmode="tel">
+        <div class="note">הפורמט: +1XXXXXXXXXX · למצוא ב-Twilio Console → Phone Numbers</div></div>
+    </div>
   `;
   el.querySelectorAll('.wk input[type=checkbox]').forEach(c=> c.onchange=e=>{
     e.target.closest('.wk').classList.toggle('off-row',!e.target.checked);
@@ -920,7 +931,9 @@ function renderCfg(el){
       end: row.querySelector('.t-end').value
     }));
     const settings={slotMin:+$('#cSlot').value, bufferMin:+$('#cBuffer').value, minNoticeH:+$('#cNotice').value,
-      phone:$('#cPhone').value.replace(/\D/g,''), meetLink:$('#cMeet').value.trim(), weekTemplate:week};
+      phone:$('#cPhone').value.replace(/\D/g,''), meetLink:$('#cMeet').value.trim(),
+      twilioSid:$('#cTwSid').value.trim(), twilioToken:$('#cTwToken').value.trim(), twilioFrom:$('#cTwFrom').value.trim(),
+      weekTemplate:week};
     const btn=$('#saveCfg'); btn.disabled=true; btn.innerHTML='שומר<span class="spin"></span>';
     await adminOp('saveSettings',{settings});
     adminData.settings=settings;
