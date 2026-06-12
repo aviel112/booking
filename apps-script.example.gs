@@ -18,6 +18,7 @@ var MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יונ
 
 var DEFAULT_SETTINGS = {
   slotMin: 60,
+  bufferMin: 0,
   minNoticeH: 3,
   phone: '',
   meetLink: '',
@@ -81,7 +82,7 @@ function getSettings_() {
   var s = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
   rows.forEach(function (r) {
     if (r.key === 'weekTemplate') { try { s.weekTemplate = JSON.parse(r.value); } catch (e) {} }
-    else if (r.key === 'slotMin' || r.key === 'minNoticeH') s[r.key] = Number(r.value);
+    else if (r.key === 'slotMin' || r.key === 'minNoticeH' || r.key === 'bufferMin') s[r.key] = Number(r.value);
     else if (r.key) s[r.key] = String(r.value);
   });
   return s;
@@ -92,6 +93,7 @@ function saveSettings_(s) {
   sh.appendRow(['key','value']);
   sh.appendRow(['slotMin', s.slotMin]);
   sh.appendRow(['minNoticeH', s.minNoticeH]);
+  sh.appendRow(['bufferMin', s.bufferMin || 0]);
   sh.appendRow(['phone', s.phone || '']);
   sh.appendRow(['meetLink', s.meetLink || '']);
   sh.appendRow(['weekTemplate', JSON.stringify(s.weekTemplate)]);
@@ -160,7 +162,8 @@ function slotsFor_(dateStr, avail, settings, bookings) {
   var p = function (t) { return parseInt(t.split(':')[0], 10) * 60 + parseInt(t.split(':')[1], 10); };
   var f = function (m) { return ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2); };
   var out = [];
-  for (var cur = p(win.start); cur + settings.slotMin <= p(win.end); cur += settings.slotMin) {
+  var step = settings.slotMin + (settings.bufferMin || 0);
+  for (var cur = p(win.start); cur + settings.slotMin <= p(win.end); cur += step) {
     var t = f(cur);
     if (!taken[t] && ilDate_(dateStr, t) > minTime) out.push(t);
   }
@@ -186,6 +189,7 @@ function doPost(e) {
   if (a === 'book')   return json_(book_(body));
   if (a === 'status') return json_(statusOf_(body.ids || []));
   if (a === 'cancelMine') return json_(cancelMine_(body));
+  if (a === 'reschedule') return json_(reschedule_(body));
   if (a === 'admin') {
     if (body.key !== ADMIN_KEY) return json_({ ok: false, error: 'unauthorized' });
     ensureTrigger_();
@@ -241,11 +245,20 @@ function book_(b) {
     var free = slotsFor_(b.date, getAvail_(), settings, getBookings_());
     if (free.indexOf(b.time) === -1) return { ok: false, error: 'slot_taken' };
 
+    var ph = String(b.phone).replace(/\D/g, '').slice(-7);
+    var today = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
+    var mine = getBookings_().filter(function (x) {
+      return String(x.phone).replace(/\D/g, '').slice(-7) === ph && x.date >= today &&
+        (x.status === 'pending' || x.status === 'approved');
+    });
+    if (mine.length >= 3) return { ok: false, error: 'too_many' };
+
     var id = 'bk' + Date.now() + Math.floor(Math.random() * 1000);
     bkSheet_().appendRow([id, b.date, b.time, b.name, b.phone, b.email, b.note || '', 'pending',
       Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm'), '']);
 
     notifyAviel_(id, b);
+    mailClient_(b, 'received');
     return { ok: true, id: id };
   } finally {
     lock.releaseLock();
@@ -266,6 +279,30 @@ function cancelMine_(body) {
   if (String(bk.phone).replace(/\D/g, '').slice(-7) !== String(body.phone || '').replace(/\D/g, '').slice(-7))
     return { ok: false, error: 'unauthorized' };
   return cancel_(body.id, false);
+}
+
+function reschedule_(body) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var bk = findBooking_(body.id);
+    if (!bk) return { ok: false, error: 'not found' };
+    if (String(bk.phone).replace(/\D/g, '').slice(-7) !== String(body.phone || '').replace(/\D/g, '').slice(-7))
+      return { ok: false, error: 'unauthorized' };
+    if (bk.status !== 'pending' && bk.status !== 'approved') return { ok: false, error: 'bad status' };
+    var settings = getSettings_();
+    var free = slotsFor_(body.date, getAvail_(), settings, getBookings_());
+    if (free.indexOf(body.time) === -1) return { ok: false, error: 'slot_taken' };
+    if (bk.eventId) {
+      try { CalendarApp.getDefaultCalendar().getEventById(bk.eventId).deleteEvent(); } catch (e) {}
+    }
+    setBookingFields_(bk._row, { date: body.date, time: body.time, status: 'pending', eventId: '' });
+    notifyAviel_(bk.id, { name: bk.name, phone: bk.phone, email: bk.email, date: body.date, time: body.time,
+      note: (bk.note ? bk.note + ' · ' : '') + '🔄 שינוי מועד' });
+    return { ok: true };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /* ---------------- admin actions ---------------- */
@@ -375,7 +412,7 @@ function notifyAviel_(id, b) {
   var no = base + '?action=reject&id=' + id + '&key=' + ADMIN_KEY;
   var btns =
     '<div style="margin-top:24px">' +
-    '<a href="' + ok + '" style="display:inline-block;background:#00d68f;color:#06281c;font-weight:bold;padding:13px 30px;border-radius:10px;text-decoration:none;margin-left:10px">✓ אשר את האימון</a>' +
+    '<a href="' + ok + '" style="display:inline-block;background:#00d68f;color:#06281c;font-weight:bold;padding:13px 30px;border-radius:10px;text-decoration:none;margin-left:10px">✓ אשר את הפגישה</a>' +
     '<a href="' + no + '" style="display:inline-block;background:#2a3050;color:#e45858;font-weight:bold;padding:13px 30px;border-radius:10px;text-decoration:none">✗ דחה</a>' +
     '</div>';
   var inner =
@@ -396,7 +433,12 @@ function notifyAviel_(id, b) {
 
 function mailClient_(bk, kind) {
   var subj, title, inner;
-  if (kind === 'approved') {
+  if (kind === 'received') {
+    subj = '📩 קיבלנו את הבקשה שלך — ' + heDate_(bk.date) + ' בשעה ' + bk.time;
+    title = 'הבקשה אצל אביאל — ממתינה לאישור';
+    inner = 'היי ' + esc_(bk.name) + ',<br>הבקשה שלך ל<b style="color:#00d68f">' + heDate_(bk.date) + ' · ' + bk.time +
+      '</b> התקבלה.<br>ברגע שאביאל יאשר — יישלח אליך זימון ליומן. אין צורך לעשות כלום בינתיים.';
+  } else if (kind === 'approved') {
     subj = '✅ הפגישה שלך אושרה — ' + heDate_(bk.date) + ' בשעה ' + bk.time;
     title = 'הפגישה אושרה — נתראה! 🤝';
     var lnk = getSettings_().meetLink;

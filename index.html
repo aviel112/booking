@@ -6,6 +6,11 @@
 <title>קביעת פגישה עם אביאל | ליווי אישי 1:1</title>
 <meta name="description" content="קובעים פגישה עם אביאל — בוחרים יום ושעה, מקבלים אישור וזימון ליומן.">
 <meta name="theme-color" content="#07090f">
+<meta property="og:title" content="קביעת פגישה עם אביאל — ליווי אישי 1:1">
+<meta property="og:description" content="בוחרים יום ושעה שנוחים לך, אביאל מאשר — והזימון אצלך ביומן.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://aviel112.github.io/booking/">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📅</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800;900&display=swap" rel="stylesheet">
@@ -194,6 +199,14 @@ a{color:var(--grn)}
 .pend .btn-row{margin-top:0}
 .pend .btn{padding:11px;font-size:.85rem}
 
+/* ---------- stats ---------- */
+.stats{display:flex;gap:8px;margin-bottom:14px}
+.stat{flex:1;background:var(--surf);border:1px solid var(--brd);border-radius:14px;padding:12px 8px;text-align:center}
+.stat b{display:block;font-size:1.3rem;font-weight:900;color:var(--grn)}
+.stat span{font-size:.66rem;color:var(--mut);font-weight:600}
+.resched-banner{background:rgba(94,162,255,.1);border:1px solid rgba(94,162,255,.4);color:var(--blu);border-radius:14px;padding:12px 16px;font-size:.82rem;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.resched-banner button{background:none;border:none;color:var(--blu);font-weight:800;text-decoration:underline;font-size:.78rem}
+
 /* ---------- admin tabs ---------- */
 .tabs{display:flex;gap:7px;margin-bottom:16px}
 .tab{flex:1;background:var(--surf);border:1px solid var(--brd);color:var(--mut);border-radius:12px;padding:11px 4px;font-size:.78rem;font-weight:700;position:relative;transition:.2s}
@@ -272,7 +285,7 @@ const MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יו
 let state = null;          // {slots:{date:[times]}, slotMin, phone}
 let view = 'cal';
 let calMonth = null;
-let selDate = null, selTime = null, lastBooking = null;
+let selDate = null, selTime = null, lastBooking = null, reschedId = null;
 let isAdmin = false, adminKey = localStorage.getItem('aviel_admin_key') || '';
 let adminData = null;      // {bookings, avail, settings}
 let adminTab = 'pending';
@@ -320,7 +333,7 @@ function demoApi(p){
     if(p.op==='list') return Promise.resolve({ok:true, bookings:[
       {id:'d1',date:fmtDate(new Date(t.getTime()+2*864e5)),time:'08:00',name:'דני כהן',phone:'0521234567',email:'a@b.com',note:'כתף רגישה',status:'pending',createdAt:''},
       {id:'d2',date:fmtDate(new Date(t.getTime()+3*864e5)),time:'10:00',name:'רון לוי',phone:'0529876543',email:'c@d.com',note:'',status:'approved',createdAt:''}
-    ], avail: Object.fromEntries(Object.keys(slots).map(d=>[d,{start:'07:00',end:'15:00'}])), settings:{slotMin:60,minNoticeH:3,phone:'',meetLink:'',weekTemplate:[{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'12:00'},{on:false,start:'07:00',end:'12:00'}]}});
+    ], avail: Object.fromEntries(Object.keys(slots).map(d=>[d,{start:'07:00',end:'15:00'}])), settings:{slotMin:60,bufferMin:0,minNoticeH:3,phone:'',meetLink:'',weekTemplate:[{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'12:00'},{on:false,start:'07:00',end:'12:00'}]}});
     return Promise.resolve({ok:true, msg:'בוצע (דמו)'});
   }
   return Promise.resolve({ok:true});
@@ -354,6 +367,7 @@ function renderCal(){
 
   app.innerHTML = `
     <div class="view">
+      ${reschedId ? `<div class="resched-banner"><span>🔄 בוחרים מועד חדש לפגישה — היום והשעה הנוכחיים ישוחררו</span><button id="cancelResched">ביטול</button></div>` : ''}
       ${stepper(1)}
       <div class="card">
         <h2>באיזה יום מתאים לך ?</h2>
@@ -379,6 +393,7 @@ function renderCal(){
   $('#prevM').onclick = ()=>{ const [py,pm]=months[idx-1].split('-'); calMonth=new Date(+py,+pm-1,1); render(); };
   $('#nextM').onclick = ()=>{ const [ny,nm]=months[idx+1].split('-'); calMonth=new Date(+ny,+nm-1,1); render(); };
   $('#mineBtn').onclick = ()=>{ view='mine'; render(); };
+  const cr = $('#cancelResched'); if(cr) cr.onclick = ()=>{ reschedId=null; render(); };
 }
 
 function stepper(n){
@@ -415,7 +430,25 @@ function renderSlots(){
     </div>
   `;
   $('#back').onclick=()=>{ view='cal'; render(); };
-  app.querySelectorAll('.slot').forEach(b=> b.onclick=()=>{ selTime=b.dataset.t; view='form'; render(); });
+  app.querySelectorAll('.slot').forEach(b=> b.onclick=async()=>{
+    selTime=b.dataset.t;
+    if(reschedId){
+      if(!confirm(`לשנות את הפגישה ל${heDate(selDate)} בשעה ${selTime} ?`)) return;
+      const saved = JSON.parse(localStorage.getItem('aviel_client')||'{}');
+      b.disabled=true;
+      const r = await apiPost({action:'reschedule', id:reschedId, phone:saved.phone||'', date:selDate, time:selTime});
+      if(!r.ok){
+        b.disabled=false;
+        if(r.error==='slot_taken'){ toast('השעה נתפסה הרגע — בחר אחרת'); await refreshState(); render(); }
+        else toast('לא הצלחנו לשנות — דבר עם אביאל');
+        return;
+      }
+      lastBooking={date:selDate,time:selTime,name:saved.name||''};
+      reschedId=null; await refreshState(); view='done'; render();
+      return;
+    }
+    view='form'; render();
+  });
 }
 
 /* ---------- client: form ---------- */
@@ -462,6 +495,7 @@ async function confirmBooking(){
     if(!res.ok){
       btn.disabled=false; btn.textContent='שליחת בקשה לאישור ←';
       if(res.error==='slot_taken'){ toast('אופס — השעה נתפסה הרגע. בחר שעה אחרת'); await refreshState(); view='slots'; render(); }
+      else if(res.error==='too_many') toast('יש לך כבר 3 פגישות פתוחות — דבר עם אביאל ישירות');
       else toast('משהו השתבש — נסה שוב');
       return;
     }
@@ -486,7 +520,7 @@ function renderDone(){
         <h2>הבקשה אצל אביאל !</h2>
         <p><b style="color:var(--txt)">${heDate(bk.date)} · ${bk.time}</b></p>
         <div class="timeline">
-          <div class="tl done"><div class="ic">✓</div><div class="tx"><b>הבקשה נשלחה</b><span>אביאל קיבל את הפרטים שלך עכשיו</span></div></div>
+          <div class="tl done"><div class="ic">✓</div><div class="tx"><b>הבקשה נשלחה</b><span>אישור קבלה נשלח אליך למייל עכשיו</span></div></div>
           <div class="tl"><div class="ic">⏳</div><div class="tx"><b>ממתין לאישור</b><span>בדרך כלל תוך זמן קצר</span></div></div>
           <div class="tl"><div class="ic">📅</div><div class="tx"><b>זימון ליומן</b><span>ברגע האישור — מייל + אירוע ביומן, כולל קישור הפגישה</span></div></div>
         </div>
@@ -526,6 +560,7 @@ async function renderMine(){
             <div class="info"><b>${heDate(b.date)} · ${b.time}</b><div class="mut">${esc(b.name)}</div></div>
             <div class="acts">
               <span class="chip-st st-${b.status}">${ST_LABEL[b.status]||b.status}</span>
+              <button class="mini wa" data-re="${b.id}">🔄 שינוי</button>
               <button class="mini del" data-id="${b.id}">ביטול</button>
             </div>
           </div>`).join('') : '<div class="empty">אין פגישות קרובות</div>'}
@@ -538,6 +573,9 @@ async function renderMine(){
     </div>
   `;
   $('#back').onclick=()=>{ view='cal'; render(); };
+  app.querySelectorAll('[data-re]').forEach(b=> b.onclick=()=>{
+    reschedId=b.dataset.re; view='cal'; render();
+  });
   app.querySelectorAll('.mini.del').forEach(b=> b.onclick=async()=>{
     if(!confirm('לבטל את הפגישה ?')) return;
     const saved = JSON.parse(localStorage.getItem('aviel_client')||'{}');
@@ -589,7 +627,18 @@ function renderAdmin(){
 function renderPending(el){
   const list = adminData.bookings.filter(b=>b.status==='pending')
     .sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+  const today = fmtDate(new Date());
+  const week = fmtDate(new Date(Date.now()+7*864e5));
+  const appr = adminData.bookings.filter(b=>b.status==='approved');
+  const todayN = appr.filter(b=>b.date===today).length;
+  const weekN = appr.filter(b=>b.date>=today && b.date<=week).length;
   el.innerHTML = `
+    <div class="stats">
+      <div class="stat"><b>${todayN}</b><span>פגישות היום</span></div>
+      <div class="stat"><b>${weekN}</b><span>בשבוע הקרוב</span></div>
+      <div class="stat"><b>${list.length}</b><span>ממתינות לאישור</span></div>
+    </div>`;
+  el.innerHTML += `
     <div class="card">
       <h2>בקשות ממתינות לאישור</h2>
       <div class="hint">באישור — אירוע נכנס ליומן שלך והמוזמן מקבל זימון למייל (כולל קישור הפגישה אם הוגדר)</div>
@@ -750,6 +799,8 @@ function renderCfg(el){
       <h2>הגדרות כלליות</h2>
       <div class="field"><label>משך פגישה (דקות)</label>
         <select id="cSlot">${[15,20,30,45,60,75,90].map(v=>`<option value="${v}" ${s.slotMin===v?'selected':''}>${v} דקות</option>`).join('')}</select></div>
+      <div class="field"><label>הפסקה בין פגישות (דקות)</label>
+        <select id="cBuffer">${[0,5,10,15,20,30].map(v=>`<option value="${v}" ${(s.bufferMin||0)===v?'selected':''}>${v===0?'בלי הפסקה':v+' דקות'}</option>`).join('')}</select></div>
       <div class="field"><label>כמה שעות מראש חייבים לקבוע</label>
         <select id="cNotice">${[0,1,2,3,6,12,24].map(v=>`<option value="${v}" ${s.minNoticeH===v?'selected':''}>${v} שעות</option>`).join('')}</select></div>
       <div class="field"><label>הטלפון שלך (לכפתורי ווטסאפ) — פורמט 9725XXXXXXXX</label>
@@ -769,7 +820,7 @@ function renderCfg(el){
       start: row.querySelector('.t-start').value,
       end: row.querySelector('.t-end').value
     }));
-    const settings={slotMin:+$('#cSlot').value, minNoticeH:+$('#cNotice').value,
+    const settings={slotMin:+$('#cSlot').value, bufferMin:+$('#cBuffer').value, minNoticeH:+$('#cNotice').value,
       phone:$('#cPhone').value.replace(/\D/g,''), meetLink:$('#cMeet').value.trim(), weekTemplate:week};
     const btn=$('#saveCfg'); btn.disabled=true; btn.innerHTML='שומר<span class="spin"></span>';
     await adminOp('saveSettings',{settings});
