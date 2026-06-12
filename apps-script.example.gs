@@ -53,9 +53,14 @@ function sheet_(name, headers) {
   return sh;
 }
 var BK_HEAD = ['id','date','time','name','phone','email','note','status','createdAt','eventId'];
+var SUM_HEAD = ['id','bookingId','date','clientName','clientEmail','measurements','homeworkClient','homeworkTrainer','changes','requests','updates','createdAt','sentAt'];
 function bkSheet_()  { return sheet_('בקשות ופגישות', BK_HEAD); }
 function avSheet_()  { return sheet_('זמינות', ['date','start','end']); }
 function cfgSheet_() { return sheet_('הגדרות', ['key','value']); }
+function sumSheet_() { return sheet_('סיכומי פגישות', SUM_HEAD); }
+function getSummaries_() {
+  return rows_(sumSheet_(), SUM_HEAD).map(function (r) { r.date = normDate_(r.date); return r; });
+}
 
 function rows_(sh, head) {
   var vals = sh.getDataRange().getValues();
@@ -200,6 +205,8 @@ function doPost(e) {
     if (body.op === 'setAvail')      return json_(setAvail_(body));
     if (body.op === 'applyTemplate') return json_(applyTemplate_(body));
     if (body.op === 'saveSettings')  { saveSettings_(body.settings); return json_({ ok: true }); }
+    if (body.op === 'saveSummary')   return json_(saveSummary_(body));
+    if (body.op === 'listSummaries') return json_({ ok: true, summaries: getSummaries_() });
   }
   return json_({ ok: false, error: 'unknown action' });
 }
@@ -387,6 +394,48 @@ function applyTemplate_(body) {
   }
   writeAvail_(map);
   return { ok: true, avail: map };
+}
+
+/* ---------------- meeting summaries ---------------- */
+function saveSummary_(body) {
+  var s = body.summary || {};
+  if (!s.bookingId) return { ok: false, error: 'missing bookingId' };
+  var all = getSummaries_();
+  var existing = null;
+  for (var i = 0; i < all.length; i++) if (all[i].bookingId === s.bookingId) existing = all[i];
+  var now = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm');
+  var id = existing ? existing.id : 'sm' + Date.now();
+  var sentAt = existing ? existing.sentAt : '';
+  if (body.send && s.clientEmail) {
+    mailSummary_(s);
+    sentAt = now;
+  }
+  var rowVals = [id, s.bookingId, s.date || '', s.clientName || '', s.clientEmail || '',
+    s.measurements || '', s.homeworkClient || '', s.homeworkTrainer || '', s.changes || '',
+    s.requests || '', s.updates || '', existing ? existing.createdAt : now, sentAt];
+  if (existing) sumSheet_().getRange(existing._row, 1, 1, SUM_HEAD.length).setValues([rowVals]);
+  else sumSheet_().appendRow(rowVals);
+  return { ok: true, sent: !!(body.send && s.clientEmail) };
+}
+
+function mailSummary_(s) {
+  function sec(emoji, title, txt) {
+    if (!txt) return '';
+    return '<div style="margin-top:16px"><div style="color:#00d68f;font-weight:bold;margin-bottom:4px">' +
+      emoji + ' ' + title + '</div><div style="white-space:pre-line">' + esc_(txt) + '</div></div>';
+  }
+  var inner = 'היי ' + esc_(s.clientName) + ',<br>הנה סיכום הפגישה שלנו מ' + heDate_(s.date) + ':' +
+    sec('📏', 'היקפים ומדדים', s.measurements) +
+    sec('🏠', 'שיעורי בית שלך', s.homeworkClient) +
+    sec('🤝', 'מה אני לוקח על עצמי', s.homeworkTrainer) +
+    sec('🔁', 'שינויים בתוכנית', s.changes) +
+    sec('🧪', 'בקשות ומשימות — בדיקות / תוספים', s.requests) +
+    sec('📌', 'עדכונים נוספים', s.updates) +
+    '<div style="margin-top:18px">נתראה בפגישה הבאה 💪<br><a href="' + APP_URL + '" style="color:#00d68f;font-weight:bold">לקביעת הפגישה הבאה ←</a></div>';
+  try {
+    MailApp.sendEmail({ to: s.clientEmail, subject: '📋 סיכום הפגישה שלנו — ' + heDate_(s.date),
+      htmlBody: mailShell_('סיכום פגישה', inner) });
+  } catch (e) {}
 }
 
 /* ---------------- emails ---------------- */

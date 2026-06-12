@@ -289,6 +289,7 @@ let selDate = null, selTime = null, lastBooking = null, reschedId = null;
 let isAdmin = false, adminKey = localStorage.getItem('aviel_admin_key') || '';
 let adminData = null;      // {bookings, avail, settings}
 let adminTab = 'pending';
+let sumList = null, sumEdit = null, avSel = null;
 let avMonth = null;
 
 const $ = s => document.querySelector(s);
@@ -334,6 +335,8 @@ function demoApi(p){
       {id:'d1',date:fmtDate(new Date(t.getTime()+2*864e5)),time:'08:00',name:'דני כהן',phone:'0521234567',email:'a@b.com',note:'כתף רגישה',status:'pending',createdAt:''},
       {id:'d2',date:fmtDate(new Date(t.getTime()+3*864e5)),time:'10:00',name:'רון לוי',phone:'0529876543',email:'c@d.com',note:'',status:'approved',createdAt:''}
     ], avail: Object.fromEntries(Object.keys(slots).map(d=>[d,{start:'07:00',end:'15:00'}])), settings:{slotMin:60,bufferMin:0,minNoticeH:3,phone:'',meetLink:'',weekTemplate:[{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'12:00'},{on:false,start:'07:00',end:'12:00'}]}});
+    if(p.op==='listSummaries') return Promise.resolve({ok:true, summaries:[]});
+    if(p.op==='saveSummary') return Promise.resolve({ok:true, sent:!!p.send});
     return Promise.resolve({ok:true, msg:'בוצע (דמו)'});
   }
   return Promise.resolve({ok:true});
@@ -387,12 +390,14 @@ function renderCal(){
         </div>
       </div>
       <button class="foot-link" id="mineBtn">הפגישות שלי</button>
+      <button class="foot-link" id="trainerBtn" style="opacity:.7">🔑 כניסת מאמן</button>
     </div>
   `;
   app.querySelectorAll('.day[data-d]').forEach(b=> b.onclick=()=>{ selDate=b.dataset.d; view='slots'; render(); });
   $('#prevM').onclick = ()=>{ const [py,pm]=months[idx-1].split('-'); calMonth=new Date(+py,+pm-1,1); render(); };
   $('#nextM').onclick = ()=>{ const [ny,nm]=months[idx+1].split('-'); calMonth=new Date(+ny,+nm-1,1); render(); };
   $('#mineBtn').onclick = ()=>{ view='mine'; render(); };
+  const tb = $('#trainerBtn'); if(tb) tb.onclick = ()=> $('#adminBtn').click();
   const cr = $('#cancelResched'); if(cr) cr.onclick = ()=>{ reschedId=null; render(); };
 }
 
@@ -609,6 +614,7 @@ function renderAdmin(){
         <button class="tab ${adminTab==='pending'?'on':''}" data-t="pending">🔔 בקשות${pending.length?`<span class="bdg">${pending.length}</span>`:''}</button>
         <button class="tab ${adminTab==='diary'?'on':''}" data-t="diary">📋 יומן</button>
         <button class="tab ${adminTab==='avail'?'on':''}" data-t="avail">🗓️ זמינות</button>
+        <button class="tab ${adminTab==='sum'?'on':''}" data-t="sum">📝 סיכומים</button>
         <button class="tab ${adminTab==='cfg'?'on':''}" data-t="cfg">⚙️ הגדרות</button>
       </div>
       <div id="adminBody"></div>
@@ -621,6 +627,7 @@ function renderAdmin(){
   if(adminTab==='pending') renderPending(body);
   if(adminTab==='diary') renderDiary(body);
   if(adminTab==='avail') renderAvail(body);
+  if(adminTab==='sum') renderSummaries(body);
   if(adminTab==='cfg') renderCfg(body);
 }
 
@@ -699,6 +706,70 @@ function renderDiary(el){
   });
 }
 
+/* ---------- admin: summaries ---------- */
+async function renderSummaries(el){
+  if(sumList===null){
+    el.innerHTML='<div class="skeleton"></div>';
+    const r=await apiPost({action:'admin',op:'listSummaries',key:adminKey});
+    sumList=r.summaries||[];
+  }
+  if(sumEdit){ renderSumForm(el); return; }
+  const today=fmtDate(new Date());
+  const past=adminData.bookings.filter(b=>b.status==='approved'&&b.date<=today)
+    .sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time)).slice(0,30);
+  const byBk={}; sumList.forEach(x=>byBk[x.bookingId]=x);
+  el.innerHTML=`
+    <div class="card">
+      <h2>סיכומי פגישות</h2>
+      <div class="hint">היקפים, שיעורי בית, שינויים, בקשות (בדיקות/תוספים) ועדכונים — נשמר בשיטס ונשלח למתאמן במייל</div>
+      ${past.length?past.map(b=>{
+        const sm=byBk[b.id];
+        return `<div class="bk">
+          <div class="info"><b>${esc(b.name)}</b><div class="mut">${heDate(b.date)} · ${b.time}${sm&&sm.sentAt?' · נשלח ✉️':''}</div></div>
+          <div class="acts"><button class="mini ${sm?'wa':'ok'}" data-sum="${b.id}">${sm?'✏️ עריכה':'✍️ כתוב סיכום'}</button></div>
+        </div>`;}).join(''):'<div class="empty">אין עדיין פגישות שהתקיימו</div>'}
+    </div>`;
+  el.querySelectorAll('[data-sum]').forEach(btn=>btn.onclick=()=>{
+    const b=adminData.bookings.find(x=>x.id===btn.dataset.sum);
+    const sm=byBk[b.id]||{};
+    sumEdit={bookingId:b.id,date:b.date,clientName:b.name,clientEmail:b.email,
+      measurements:sm.measurements||'',homeworkClient:sm.homeworkClient||'',homeworkTrainer:sm.homeworkTrainer||'',
+      changes:sm.changes||'',requests:sm.requests||'',updates:sm.updates||''};
+    renderSummaries(el);
+  });
+}
+
+function renderSumForm(el){
+  const sm=sumEdit;
+  const fld=(id,emoji,label,ph)=>`<div class="field"><label>${emoji} ${label}</label><textarea id="${id}" placeholder="${ph}">${esc(sm[id])}</textarea></div>`;
+  el.innerHTML=`
+    <button class="back-link" id="sumBack">→ חזרה לרשימה</button>
+    <div class="card">
+      <h2>סיכום פגישה — ${esc(sm.clientName)}</h2>
+      <div class="hint">${heDate(sm.date)} · יישלח ל-${esc(sm.clientEmail)}</div>
+      ${fld('measurements','📏','היקפים ומדדים','משקל, היקף מותן, אחוז שומן...')}
+      ${fld('homeworkClient','🏠','שיעורי בית של המתאמן','3 אימונים השבוע, 10K צעדים ביום...')}
+      ${fld('homeworkTrainer','🤝','מה אני לוקח על עצמי','לבנות תוכנית חדשה, לשלוח מתכונים...')}
+      ${fld('changes','🔁','שינויים בתוכנית','העלאת משקלים, שינוי תפריט...')}
+      ${fld('requests','🧪','בקשות — בדיקות דם / הזמנת תוספים','בדיקת B12 וויטמין D, להזמין קריאטין...')}
+      ${fld('updates','📌','עדכונים נוספים','כל דבר אחר שעלה בפגישה')}
+      <button class="btn btn-grn" id="sumSend" style="margin-bottom:9px">💾 שמור ושלח למתאמן במייל</button>
+      <button class="btn btn-ghost" id="sumSave">שמירה בלבד (בלי לשלוח)</button>
+    </div>`;
+  $('#sumBack').onclick=()=>{ sumEdit=null; renderSummaries(el); };
+  const collect=()=>{ ['measurements','homeworkClient','homeworkTrainer','changes','requests','updates'].forEach(k=>sm[k]=$('#'+k).value.trim()); };
+  const doSave=async(send)=>{
+    collect();
+    const btn=send?$('#sumSend'):$('#sumSave');
+    btn.disabled=true; btn.innerHTML='שומר<span class="spin"></span>';
+    const r=await apiPost({action:'admin',op:'saveSummary',key:adminKey,summary:sm,send});
+    if(r.ok){ toast(send?'הסיכום נשמר ונשלח למייל ✓':'הסיכום נשמר ✓'); sumList=null; sumEdit=null; renderSummaries(el); }
+    else{ btn.disabled=false; btn.textContent=send?'💾 שמור ושלח למתאמן במייל':'שמירה בלבד (בלי לשלוח)'; toast('שגיאה — נסה שוב'); }
+  };
+  $('#sumSend').onclick=()=>doSave(true);
+  $('#sumSave').onclick=()=>doSave(false);
+}
+
 /* ---------- admin: availability ---------- */
 function renderAvail(el){
   if(!avMonth){ const n=new Date(); avMonth=new Date(n.getFullYear(),n.getMonth(),1); }
@@ -714,7 +785,7 @@ function renderAvail(el){
     const ds=`${ym}-${pad(d)}`;
     const win=adminData.avail[ds];
     const past=ds<today;
-    cells += `<button class="day ${past?'off':win?'open-av':'closed-av'}" ${past?'disabled':`data-d="${ds}"`}>
+    cells += `<button class="day ${past?'off':win?'open-av':'closed-av'} ${avSel===ds?'sel':''}" ${past?'disabled':`data-d="${ds}"`}>
       <span>${d}</span>${win?`<span class="hrs">${win.start}–${win.end}</span>`:''}</button>`;
   }
   const openDates = Object.keys(adminData.avail).filter(d=>d.startsWith(ym)&&d>=today).sort();
@@ -735,49 +806,58 @@ function renderAvail(el){
       <div class="av-tools">
         <button class="btn btn-grn" id="applyTpl">⚡ פתח את כל ${MONTHS[m]} לפי השעות הקבועות</button>
       </div>
-      <div class="hour-edit">
-        <span style="font-size:.78rem;color:var(--mut);font-weight:700">שעות ליום מסוים:</span>
-        <select id="heDate">${openDates.length?openDates.map(d=>`<option value="${d}">${heDate(d)}</option>`).join(''):'<option value="">אין ימים פתוחים</option>'}</select>
-        <input type="time" id="heStart" value="${openDates.length?adminData.avail[openDates[0]].start:'07:00'}">
-        <input type="time" id="heEnd" value="${openDates.length?adminData.avail[openDates[0]].end:'15:00'}">
-        <button class="btn btn-ghost" id="heSave">עדכן</button>
-      </div>
+      ${avSel && adminData.avail[avSel] ? `
+      <div id="dayPanel" style="margin-top:14px;background:rgba(0,214,143,.06);border:1px solid rgba(0,214,143,.3);border-radius:14px;padding:14px">
+        <div style="font-weight:800;font-size:.9rem;margin-bottom:10px">🗓️ ${heDate(avSel)}</div>
+        <div class="hour-edit" style="margin-top:0">
+          <span style="font-size:.78rem;color:var(--mut);font-weight:700">פתוח בין</span>
+          <input type="time" id="dpStart" value="${adminData.avail[avSel].start}">
+          <span class="dash">–</span>
+          <input type="time" id="dpEnd" value="${adminData.avail[avSel].end}">
+          <button class="btn btn-grn" id="dpSave" style="width:auto;padding:9px 18px;font-size:.8rem">שמור שעות</button>
+          <button class="btn btn-red" id="dpClose" style="width:auto;padding:9px 14px;font-size:.8rem">סגור את היום</button>
+        </div>
+      </div>` : `<div class="hint" style="margin:12px 0 0">לוחצים על יום בלוח — נפתח ומופיעות השעות שלו לעריכה</div>`}
     </div>
   `;
-  $('#avPrev').onclick=()=>{ avMonth=new Date(y,m-1,1); renderAvail(el); };
-  $('#avNext').onclick=()=>{ avMonth=new Date(y,m+1,1); renderAvail(el); };
+  $('#avPrev').onclick=()=>{ avMonth=new Date(y,m-1,1); avSel=null; renderAvail(el); };
+  $('#avNext').onclick=()=>{ avMonth=new Date(y,m+1,1); avSel=null; renderAvail(el); };
 
   el.querySelectorAll('.day[data-d]').forEach(b=> b.onclick=async()=>{
     const ds=b.dataset.d;
-    if(adminData.avail[ds]){
-      delete adminData.avail[ds];
-      renderAvail(el);
-      await adminOp('setAvail',{remove:[ds]});
-    } else {
+    if(!adminData.avail[ds]){
       const dow=parseDate(ds).getDay();
       const w=tpl[dow].on?tpl[dow]:{start:'07:00',end:'15:00'};
       adminData.avail[ds]={start:w.start,end:w.end};
-      renderAvail(el);
-      await adminOp('setAvail',{set:{[ds]:adminData.avail[ds]}});
+      adminOp('setAvail',{set:{[ds]:adminData.avail[ds]}});
+      toast(`${heDate(ds)} נפתח ✓`);
     }
+    avSel=ds;
+    renderAvail(el);
   });
+  const dp=$('#dayPanel');
+  if(dp){
+    $('#dpSave').onclick=async()=>{
+      const w={start:$('#dpStart').value,end:$('#dpEnd').value};
+      adminData.avail[avSel]=w;
+      await adminOp('setAvail',{set:{[avSel]:w}});
+      toast('השעות עודכנו ✓'); renderAvail(el);
+    };
+    $('#dpClose').onclick=async()=>{
+      delete adminData.avail[avSel];
+      const d=avSel; avSel=null;
+      renderAvail(el);
+      await adminOp('setAvail',{remove:[d]});
+      toast('היום נסגר');
+    };
+  }
   $('#applyTpl').onclick=async()=>{
     const btn=$('#applyTpl'); btn.disabled=true; btn.innerHTML='פותח את החודש<span class="spin"></span>';
     const r=await adminOp('applyTemplate',{month:ym});
     if(r.ok){ adminData.avail=r.avail; toast(`${MONTHS[m]} נפתח לפי השעות הקבועות ✓`); }
     renderAvail(el);
   };
-  $('#heDate').onchange=e=>{
-    const w=adminData.avail[e.target.value];
-    if(w){ $('#heStart').value=w.start; $('#heEnd').value=w.end; }
-  };
-  $('#heSave').onclick=async()=>{
-    const ds=$('#heDate').value; if(!ds) return;
-    const w={start:$('#heStart').value,end:$('#heEnd').value};
-    adminData.avail[ds]=w;
-    await adminOp('setAvail',{set:{[ds]:w}});
-    toast('השעות עודכנו ✓'); renderAvail(el);
-  };
+
 }
 
 function renderCfg(el){
@@ -798,7 +878,7 @@ function renderCfg(el){
     <div class="card">
       <h2>הגדרות כלליות</h2>
       <div class="field"><label>משך פגישה (דקות)</label>
-        <select id="cSlot">${[15,20,30,45,60,75,90].map(v=>`<option value="${v}" ${s.slotMin===v?'selected':''}>${v} דקות</option>`).join('')}</select></div>
+        <select id="cSlot">${[15,20,30,40,45,50,60,75,90].map(v=>`<option value="${v}" ${s.slotMin===v?'selected':''}>${v} דקות</option>`).join('')}</select></div>
       <div class="field"><label>הפסקה בין פגישות (דקות)</label>
         <select id="cBuffer">${[0,5,10,15,20,30].map(v=>`<option value="${v}" ${(s.bufferMin||0)===v?'selected':''}>${v===0?'בלי הפסקה':v+' דקות'}</option>`).join('')}</select></div>
       <div class="field"><label>כמה שעות מראש חייבים לקבוע</label>
