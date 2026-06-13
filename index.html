@@ -11,6 +11,11 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://aviel112.github.io/booking/">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📅</text></svg>">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="אביאל">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800;900&display=swap" rel="stylesheet">
@@ -193,6 +198,23 @@ a{color:var(--grn)}
 .cf-yes{background:rgba(0,214,143,.14);color:var(--grn);border:1px solid rgba(0,214,143,.4)}
 .cf-wait{background:rgba(136,146,176,.12);color:var(--mut);border:1px solid var(--brd)}
 .today-badge{background:var(--grad);color:#053024;font-size:.62rem;font-weight:900;border-radius:20px;padding:2px 9px;margin-right:6px}
+.cli-row{cursor:pointer}
+.cli-row:hover{border-color:rgba(0,214,143,.4)}
+.cli-chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:5px}
+.cli-chip{font-size:.62rem;font-weight:800;border-radius:8px;padding:2px 7px;background:var(--surf);border:1px solid var(--brd);color:var(--mut)}
+.cli-chip.go{background:rgba(0,214,143,.12);color:var(--grn);border-color:rgba(0,214,143,.4)}
+.cli-chip.warn{background:rgba(255,180,84,.12);color:var(--org);border-color:rgba(255,180,84,.4)}
+.cli-chip.fire{background:rgba(255,107,107,.1);color:#ff8a5c;border-color:rgba(255,138,92,.4)}
+.streak-big{display:flex;align-items:baseline;gap:6px;background:rgba(255,138,92,.08);border:1px solid rgba(255,138,92,.3);border-radius:12px;padding:10px 14px;margin:10px 0}
+.streak-big b{font-size:1.5rem;font-weight:900;color:#ff8a5c}
+.streak-big span{font-size:.78rem;color:var(--mut);font-weight:700}
+.pwa-pill{position:fixed;left:12px;right:12px;bottom:14px;max-width:420px;margin:0 auto;z-index:60;
+  background:rgba(22,26,38,.96);border:1px solid var(--brd);border-radius:14px;
+  padding:11px 13px;display:flex;align-items:center;gap:9px;box-shadow:0 10px 40px rgba(0,0,0,.5);backdrop-filter:blur(8px);animation:pillUp .35s ease}
+@keyframes pillUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+.pwa-pill span{flex:1;font-size:.8rem;font-weight:600;color:var(--txt)}
+.pwa-pill #pwaGo{background:var(--grad);border:none;color:#053024;font-weight:800;border-radius:9px;padding:8px 16px;font-size:.8rem}
+.pwa-pill #pwaX{background:none;border:none;color:var(--mut);font-size:.9rem;padding:4px 6px}
 .date-group{font-size:.76rem;color:var(--mut);font-weight:800;margin:18px 0 9px;display:flex;align-items:center;gap:10px}
 .date-group::after{content:'';flex:1;height:1px;background:var(--brd)}
 
@@ -324,7 +346,7 @@ let selDate = null, selTime = null, lastBooking = null, reschedId = null;
 let isAdmin = false, adminKey = localStorage.getItem('aviel_admin_key') || '';
 let adminData = null;      // {bookings, avail, settings}
 let adminTab = 'pending';
-let sumList = null, sumEdit = null, avSel = null;
+let sumList = null, sumEdit = null, avSel = null, cliSel = null;
 let avMonth = null;
 
 const $ = s => document.querySelector(s);
@@ -745,6 +767,7 @@ function renderAdmin(){
       <div class="tabs">
         <button class="tab ${adminTab==='pending'?'on':''}" data-t="pending">🔔 בקשות${pending.length?`<span class="bdg">${pending.length}</span>`:''}</button>
         <button class="tab ${adminTab==='diary'?'on':''}" data-t="diary">📋 יומן</button>
+        <button class="tab ${adminTab==='clients'?'on':''}" data-t="clients">👥 לקוחות</button>
         <button class="tab ${adminTab==='avail'?'on':''}" data-t="avail">🗓️ זמינות</button>
         <button class="tab ${adminTab==='sum'?'on':''}" data-t="sum">📝 סיכומים</button>
         <button class="tab ${adminTab==='cfg'?'on':''}" data-t="cfg">⚙️ הגדרות</button>
@@ -758,6 +781,7 @@ function renderAdmin(){
   const body=$('#adminBody');
   if(adminTab==='pending') renderPending(body);
   if(adminTab==='diary') renderDiary(body);
+  if(adminTab==='clients') renderClients(body);
   if(adminTab==='avail') renderAvail(body);
   if(adminTab==='sum') renderSummaries(body);
   if(adminTab==='cfg') renderCfg(body);
@@ -818,6 +842,9 @@ function renderDiary(el){
   const noshowN = all.filter(b=>b.status==='noshow').length;
   const confN = upcoming.filter(b=>b.confirmed==='yes').length;
 
+  const streakByKey = {};
+  clientStats().forEach(c=>{ streakByKey[c.key]=c.streak; });
+
   const byDate = {};
   upcoming.forEach(b=>{ (byDate[b.date]=byDate[b.date]||[]).push(b); });
 
@@ -829,9 +856,11 @@ function renderDiary(el){
     const cf = b.confirmed==='yes'
       ? '<span class="cf-badge cf-yes">✅ אישר/ה הגעה</span>'
       : '<span class="cf-badge cf-wait">⏳ טרם אישר/ה</span>';
+    const stk = streakByKey[String(b.phone).replace(/\D/g,'').slice(-7)]||0;
+    const stkChip = stk>=3 ? `<span class="cf-badge cf-yes" style="background:rgba(255,138,92,.12);color:#ff8a5c;border-color:rgba(255,138,92,.4)">🔥 רצף ${stk}</span>` : '';
     const msg = `היי ${b.name}! מזכיר לך — פגישה ${heDate(b.date)} בשעה ${b.time} 🤝 נתראה !`;
     return `<div class="bk">
-      <div class="info"><b>${b.time}</b> · ${esc(b.name)}<div class="mut">${esc(b.phone)}${b.note?' · '+esc(b.note):''}</div>${cf}</div>
+      <div class="info"><b>${b.time}</b> · ${esc(b.name)}<div class="mut">${esc(b.phone)}${b.note?' · '+esc(b.note):''}</div>${cf}${stkChip}</div>
       <div class="acts">
         <a href="${waLink(b,msg)}" target="_blank"><button class="mini wa">💬</button></a>
         <button class="mini del" data-id="${b.id}">✕</button>
@@ -882,6 +911,100 @@ function renderDiary(el){
     if(!confirm('לסמן שהלקוח לא הגיע ?')) return;
     await adminOp('markNoshow',{id:b.dataset.ns}); await loadAdmin(); renderAdmin();
   });
+}
+
+/* ---------- admin: clients CRM ---------- */
+function clientStats(){
+  const today = fmtDate(new Date());
+  const by = {};
+  adminData.bookings.forEach(b=>{
+    const key = String(b.phone).replace(/\D/g,'').slice(-7);
+    if(!key) return;
+    (by[key] || (by[key]={key, all:[]})).all.push(b);
+  });
+  return Object.values(by).map(c=>{
+    c.all.sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
+    const latest = c.all[c.all.length-1];
+    c.name=latest.name; c.email=latest.email; c.phone=latest.phone;
+    c.completed = c.all.filter(b=>b.status==='completed').length;
+    c.noshow    = c.all.filter(b=>b.status==='noshow').length;
+    c.cancelled = c.all.filter(b=>b.status==='cancelled').length;
+    c.upcoming  = c.all.filter(b=>b.status==='approved' && b.date>=today);
+    c.next = c.upcoming[0]||null;
+    // אימונים שהתקיימו בפועל (כולל מאושרים שעבר זמנם ועוד לא סומנו)
+    c.met = c.all.filter(b=>b.date<today && (b.status==='completed'||b.status==='approved')).length;
+    const lastList = c.all.filter(b=>b.date<=today && (b.status==='completed'||b.status==='approved'));
+    c.lastVisit = lastList.length ? lastList[lastList.length-1].date : null;
+    // רצף: פגישות שהסתיימו, מהאחרונה אחורה — completed מצטבר, noshow שובר
+    const finished = c.all.filter(b=>b.date<today && (b.status==='completed'||b.status==='noshow'))
+      .sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+    let streak=0;
+    for(const b of finished){ if(b.status==='completed') streak++; else break; }
+    c.streak=streak;
+    return c;
+  }).sort((a,b)=> (b.next?1:0)-(a.next?1:0) || b.met-a.met || b.completed-a.completed);
+}
+
+function renderClients(el){
+  const clients = clientStats();
+  if(cliSel){
+    const c = clients.find(x=>x.key===cliSel);
+    if(!c){ cliSel=null; return renderClients(el); }
+    const today=fmtDate(new Date());
+    const hist=[...c.all].sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+    const wa=String(c.phone).replace(/\D/g,'').replace(/^0/,'972');
+    el.innerHTML=`
+      <button class="back-link" id="cliBack">→ חזרה לרשימת הלקוחות</button>
+      <div class="card">
+        <h2>${esc(c.name)}</h2>
+        <div class="hint">📞 ${esc(c.phone)}${c.email?' · ✉️ '+esc(c.email):''}${c.lastVisit?' · ביקור אחרון '+heDate(c.lastVisit):''}</div>
+        ${c.streak>=2?`<div class="streak-big"><b>🔥 ${c.streak}</b><span>אימונים ברצף בלי לפספס — אלוף/ה !</span></div>`:''}
+        <div class="stats">
+          <div class="stat grn-hi"><b>${c.met}</b><span>אימונים</span></div>
+          <div class="stat"><b>${c.upcoming.length}</b><span>קרובים</span></div>
+          <div class="stat"><b>${c.noshow}</b><span>לא הגיע</span></div>
+          <div class="stat"><b>${c.cancelled}</b><span>ביטולים</span></div>
+        </div>
+        <div class="acts" style="display:flex;gap:8px;margin-top:4px">
+          <a href="https://wa.me/${wa}" target="_blank" style="flex:1"><button class="btn btn-grn" style="width:100%">💬 ווטסאפ</button></a>
+          <a href="tel:${esc(c.phone)}" style="flex:1"><button class="btn btn-ghost" style="width:100%">📞 חיוג</button></a>
+        </div>
+      </div>
+      <div class="card">
+        <h2>היסטוריית פגישות (${hist.length})</h2>
+        ${hist.map(b=>`<div class="bk">
+          <div class="info"><b>${heDate(b.date)}</b> · ${b.time}<div class="mut">${b.note?esc(b.note):''}</div></div>
+          <span class="chip-st st-${b.status}">${ST_LABEL[b.status]||b.status}</span>
+        </div>`).join('')}
+      </div>`;
+    $('#cliBack').onclick=()=>{ cliSel=null; renderClients(el); };
+    return;
+  }
+
+  const totMet = clients.reduce((s,c)=>s+c.met,0);
+  const totNoshow = clients.reduce((s,c)=>s+c.noshow,0);
+  const rate = (totMet+totNoshow)>0 ? Math.round(totMet/(totMet+totNoshow)*100) : 100;
+  el.innerHTML=`
+    <div class="stats">
+      <div class="stat grn-hi"><b>${clients.length}</b><span>לקוחות</span></div>
+      <div class="stat"><b>${totMet}</b><span>סה"כ אימונים</span></div>
+      <div class="stat"><b>${rate}%</b><span>שיעור הגעה</span></div>
+    </div>
+    <div class="card">
+      <h2>הלקוחות שלך</h2>
+      <div class="hint">לחיצה על לקוח → היסטוריה מלאה, רצף אימונים וצ'אט מהיר. ממוין לפי מי שיש לו פגישה קרובה.</div>
+      ${clients.length?clients.map(c=>{
+        const chips=[];
+        if(c.next) chips.push(`<span class="cli-chip go">📅 הבא: ${heDate(c.next.date)} ${c.next.time}</span>`);
+        if(c.streak>=2) chips.push(`<span class="cli-chip fire">🔥 רצף ${c.streak}</span>`);
+        if(c.noshow) chips.push(`<span class="cli-chip warn">${c.noshow} לא-הגיע</span>`);
+        return `<div class="bk cli-row" data-cli="${c.key}">
+          <div class="info"><b>${esc(c.name)}</b><div class="mut">${c.met} אימונים${c.lastVisit?' · אחרון '+heDate(c.lastVisit):''}</div>
+            <div class="cli-chips">${chips.join('')}</div></div>
+          <div class="acts"><span style="color:var(--mut);font-size:1.2rem">‹</span></div>
+        </div>`;}).join(''):'<div class="empty">עדיין אין לקוחות במערכת</div>'}
+    </div>`;
+  el.querySelectorAll('[data-cli]').forEach(r=> r.onclick=()=>{ cliSel=r.dataset.cli; renderClients(el); });
 }
 
 /* ---------- admin: summaries ---------- */
@@ -1201,6 +1324,30 @@ $('#adminBtn').onclick = async ()=>{
     }).catch(()=>{});
   }
 })();
+
+/* ---------- PWA ---------- */
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=> navigator.serviceWorker.register('sw.js').catch(()=>{}));
+}
+let _deferredInstall = null;
+window.addEventListener('beforeinstallprompt', e=>{
+  e.preventDefault(); _deferredInstall = e;
+  if(!localStorage.getItem('aviel_pwa_dismissed')) showInstallPill();
+});
+function showInstallPill(){
+  if(document.getElementById('pwaPill')) return;
+  const p = document.createElement('div');
+  p.id='pwaPill'; p.className='pwa-pill';
+  p.innerHTML = `<span>📲 הוסף למסך הבית — גישה בלחיצה</span><button id="pwaGo">התקן</button><button id="pwaX" aria-label="סגור">✕</button>`;
+  document.body.appendChild(p);
+  document.getElementById('pwaGo').onclick = async ()=>{
+    if(!_deferredInstall) return;
+    _deferredInstall.prompt();
+    await _deferredInstall.userChoice;
+    _deferredInstall=null; p.remove();
+  };
+  document.getElementById('pwaX').onclick = ()=>{ localStorage.setItem('aviel_pwa_dismissed','1'); p.remove(); };
+}
 </script>
 </body>
 </html>
