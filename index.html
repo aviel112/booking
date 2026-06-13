@@ -188,6 +188,11 @@ a{color:var(--grn)}
 .mini.wa{background:rgba(0,214,143,.1);border:1px solid rgba(0,214,143,.35);color:var(--grn)}
 .mini.del{background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.35);color:var(--red)}
 .mini.ok{background:var(--grad);border:none;color:#053024}
+.mini.ns{background:rgba(255,180,84,.1);border:1px solid rgba(255,180,84,.4);color:var(--org)}
+.cf-badge{font-size:.64rem;font-weight:800;border-radius:20px;padding:3px 8px;white-space:nowrap;display:inline-block;margin-top:3px}
+.cf-yes{background:rgba(0,214,143,.14);color:var(--grn);border:1px solid rgba(0,214,143,.4)}
+.cf-wait{background:rgba(136,146,176,.12);color:var(--mut);border:1px solid var(--brd)}
+.today-badge{background:var(--grad);color:#053024;font-size:.62rem;font-weight:900;border-radius:20px;padding:2px 9px;margin-right:6px}
 .date-group{font-size:.76rem;color:var(--mut);font-weight:800;margin:18px 0 9px;display:flex;align-items:center;gap:10px}
 .date-group::after{content:'';flex:1;height:1px;background:var(--brd)}
 
@@ -671,15 +676,19 @@ async function renderMine(){
       <div class="card">
         <h2>הפגישות שלי</h2>
         <div class="hint">מעקב אחרי הבקשות מהמכשיר הזה</div>
-        ${rows.length ? rows.map(b=>`
+        ${rows.length ? rows.map(b=>{
+          const canConfirm = b.status==='approved' && !b.confirmed;
+          const confChip = b.status==='approved' && b.confirmed ? '<span class="cf-badge cf-yes">✅ אישרת הגעה</span>' : '';
+          return `
           <div class="bk">
-            <div class="info"><b>${heDate(b.date)} · ${b.time}</b><div class="mut">${esc(b.name)}</div></div>
+            <div class="info"><b>${heDate(b.date)} · ${b.time}</b><div class="mut">${esc(b.name)}</div>${confChip}</div>
             <div class="acts">
               <span class="chip-st st-${b.status}">${ST_LABEL[b.status]||b.status}</span>
+              ${canConfirm?`<button class="mini ok" data-cf="${b.id}">✅ אשר הגעה</button>`:''}
               <button class="mini wa" data-re="${b.id}">🔄 שינוי</button>
               <button class="mini del" data-id="${b.id}">ביטול</button>
             </div>
-          </div>`).join('') : '<div class="empty">אין פגישות קרובות</div>'}
+          </div>`;}).join('') : '<div class="empty">אין פגישות קרובות</div>'}
         ${past.length ? `<div class="date-group">היסטוריה</div>` + past.map(b=>`
           <div class="bk" style="opacity:.6">
             <div class="info"><b>${heDate(b.date)} · ${b.time}</b></div>
@@ -691,6 +700,12 @@ async function renderMine(){
   $('#back').onclick=()=>{ view='cal'; render(); };
   app.querySelectorAll('[data-re]').forEach(b=> b.onclick=()=>{
     reschedId=b.dataset.re; view='cal'; render();
+  });
+  app.querySelectorAll('[data-cf]').forEach(b=> b.onclick=async()=>{
+    b.disabled=true; b.innerHTML='שולח<span class="spin"></span>';
+    const r = await apiPost({action:'confirmMine', id:b.dataset.cf});
+    toast(r.ok?(r.msg||'אישרת הגעה ✓'):'לא הצלחנו — נסה שוב');
+    render();
   });
   app.querySelectorAll('.mini.del').forEach(b=> b.onclick=async()=>{
     if(!confirm('לבטל את הפגישה ?')) return;
@@ -794,36 +809,78 @@ function renderPending(el){
 
 function renderDiary(el){
   const today = fmtDate(new Date());
-  const list = adminData.bookings.filter(b=>b.status==='approved' && b.date>=today)
+  const all = adminData.bookings;
+  const upcoming = all.filter(b=>b.status==='approved' && b.date>=today)
     .sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
-  const byDate = {};
-  list.forEach(b=>{ (byDate[b.date]=byDate[b.date]||[]).push(b); });
+  const toMark = all.filter(b=>b.status==='approved' && b.date<today)
+    .sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time));
+  const doneN = all.filter(b=>b.status==='completed').length;
+  const noshowN = all.filter(b=>b.status==='noshow').length;
+  const confN = upcoming.filter(b=>b.confirmed==='yes').length;
 
-  function row(b){
+  const byDate = {};
+  upcoming.forEach(b=>{ (byDate[b.date]=byDate[b.date]||[]).push(b); });
+
+  function waLink(b, txt){
     const wa = String(b.phone).replace(/\D/g,'').replace(/^0/,'972');
-    const msg = encodeURIComponent(`היי ${b.name}! מזכיר לך — פגישה ${heDate(b.date)} בשעה ${b.time} 🤝 נתראה !`);
+    return `https://wa.me/${wa}?text=${encodeURIComponent(txt)}`;
+  }
+  function row(b){
+    const cf = b.confirmed==='yes'
+      ? '<span class="cf-badge cf-yes">✅ אישר/ה הגעה</span>'
+      : '<span class="cf-badge cf-wait">⏳ טרם אישר/ה</span>';
+    const msg = `היי ${b.name}! מזכיר לך — פגישה ${heDate(b.date)} בשעה ${b.time} 🤝 נתראה !`;
     return `<div class="bk">
-      <div class="info"><b>${b.time}</b> · ${esc(b.name)}<div class="mut">${esc(b.phone)}${b.note?' · '+esc(b.note):''}</div></div>
+      <div class="info"><b>${b.time}</b> · ${esc(b.name)}<div class="mut">${esc(b.phone)}${b.note?' · '+esc(b.note):''}</div>${cf}</div>
       <div class="acts">
-        <a href="https://wa.me/${wa}?text=${msg}" target="_blank"><button class="mini wa">💬</button></a>
+        <a href="${waLink(b,msg)}" target="_blank"><button class="mini wa">💬</button></a>
         <button class="mini del" data-id="${b.id}">✕</button>
       </div>
     </div>`;
   }
-  const groups = Object.keys(byDate).sort().map(d=>
-    `<div class="date-group">${heDate(d)} · ${byDate[d].length} פגישות</div>` + byDate[d].map(row).join('')
-  ).join('');
+  function markRow(b){
+    return `<div class="bk">
+      <div class="info"><b>${b.time}</b> · ${esc(b.name)}<div class="mut">${heDate(b.date)}${b.note?' · '+esc(b.note):''}</div></div>
+      <div class="acts">
+        <button class="mini ok" data-done="${b.id}">✓ בוצע</button>
+        <button class="mini ns" data-ns="${b.id}">לא הגיע</button>
+      </div>
+    </div>`;
+  }
+  const groups = Object.keys(byDate).sort().map(d=>{
+    const isToday = d===today;
+    return `<div class="date-group">${isToday?'<span class="today-badge">היום</span>':''}${heDate(d)} · ${byDate[d].length} פגישות</div>` + byDate[d].map(row).join('');
+  }).join('');
 
   el.innerHTML = `
+    <div class="stats">
+      <div class="stat${upcoming.filter(b=>b.date===today).length?' grn-hi':''}"><b>${upcoming.filter(b=>b.date===today).length}</b><span>היום</span></div>
+      <div class="stat"><b>${confN}/${upcoming.length}</b><span>אישרו הגעה</span></div>
+      <div class="stat"><b>${doneN}</b><span>בוצעו</span></div>
+      <div class="stat${noshowN?' ':''}"><b>${noshowN}</b><span>לא הגיעו</span></div>
+    </div>
+    ${toMark.length?`
+    <div class="card" style="border-color:rgba(255,180,84,.35)">
+      <h2>⏳ ממתינות לסימון (${toMark.length})</h2>
+      <div class="hint">פגישות שעבר זמנן — סמן אם בוצעו או שהלקוח לא הגיע (משחרר נתוני נוכחות)</div>
+      ${toMark.map(markRow).join('')}
+    </div>`:''}
     <div class="card">
-      <h2>פגישות מאושרות (${list.length})</h2>
-      <div class="hint">💬 — תזכורת בווטסאפ בלחיצה · ✕ — ביטול (מוחק גם מהיומן)</div>
+      <h2>פגישות קרובות (${upcoming.length})</h2>
+      <div class="hint">💬 — תזכורת ידנית בווטסאפ · ✕ — ביטול (מוחק מהיומן ושולח הודעה) · ✅ — הלקוח אישר הגעה דרך התזכורת</div>
       ${groups || '<div class="empty">אין פגישות מאושרות קרובות</div>'}
     </div>
   `;
   el.querySelectorAll('.mini.del').forEach(b=> b.onclick=async()=>{
     if(!confirm('לבטל את האימון ? האירוע יימחק מהיומן והמוזמן יקבל הודעה')) return;
     await adminOp('cancel',{id:b.dataset.id}); await loadAdmin(); renderAdmin();
+  });
+  el.querySelectorAll('[data-done]').forEach(b=> b.onclick=async()=>{
+    await adminOp('markDone',{id:b.dataset.done}); await loadAdmin(); renderAdmin();
+  });
+  el.querySelectorAll('[data-ns]').forEach(b=> b.onclick=async()=>{
+    if(!confirm('לסמן שהלקוח לא הגיע ?')) return;
+    await adminOp('markNoshow',{id:b.dataset.ns}); await loadAdmin(); renderAdmin();
   });
 }
 
@@ -836,7 +893,7 @@ async function renderSummaries(el){
   }
   if(sumEdit){ renderSumForm(el); return; }
   const today=fmtDate(new Date());
-  const past=adminData.bookings.filter(b=>b.status==='approved'&&b.date<=today)
+  const past=adminData.bookings.filter(b=>(b.status==='approved'||b.status==='completed')&&b.date<=today)
     .sort((a,b)=>(b.date+b.time).localeCompare(a.date+a.time)).slice(0,30);
   const byBk={}; sumList.forEach(x=>byBk[x.bookingId]=x);
   el.innerHTML=`
@@ -910,6 +967,7 @@ function renderAvail(el){
       <span>${d}</span>${win?`<span class="hrs">${win.start}–${win.end}</span>`:''}</button>`;
   }
   const openDates = Object.keys(adminData.avail).filter(d=>d.startsWith(ym)&&d>=today).sort();
+  const openCount = openDates.length;
 
   el.innerHTML = `
     <div class="card">
@@ -1017,6 +1075,9 @@ function renderCfg(el){
         <select id="cBuffer">${[0,5,10,15,20,30].map(v=>`<option value="${v}" ${(s.bufferMin||0)===v?'selected':''}>${v===0?'בלי הפסקה':v+' דקות'}</option>`).join('')}</select></div>
       <div class="field"><label>כמה שעות מראש חייבים לקבוע</label>
         <select id="cNotice">${[0,1,2,3,6,12,24].map(v=>`<option value="${v}" ${s.minNoticeH===v?'selected':''}>${v} שעות</option>`).join('')}</select></div>
+      <div class="field"><label>עד כמה זמן קדימה אפשר לקבוע</label>
+        <select id="cMaxDays">${[14,21,30,45,60,90,120].map(v=>`<option value="${v}" ${(s.maxDaysAhead||60)===v?'selected':''}>${v} ימים</option>`).join('')}</select>
+        <div class="note">לקוחות לא יראו תאריכים רחוקים מזה</div></div>
       <div class="field"><label>הטלפון שלך (לכפתורי ווטסאפ) — פורמט 9725XXXXXXXX</label>
         <input id="cPhone" value="${esc(s.phone||'')}" placeholder="972501234567" inputmode="tel"></div>
       <div class="field"><label>קישור לפגישה (זום / גוגל מיט) — יצורף אוטומטית לזימון ולמייל האישור</label>
@@ -1035,7 +1096,29 @@ function renderCfg(el){
         <input id="cTwFrom" value="${esc(s.twilioFrom||'')}" placeholder="+1xxxxxxxxxx" dir="ltr" inputmode="tel">
         <div class="note">הפורמט: +1XXXXXXXXXX · למצוא ב-Twilio Console → Phone Numbers</div></div>
     </div>
+    <div class="card">
+      <h2>⏰ תזכורות אוטומטיות</h2>
+      <div class="hint">המערכת שולחת תזכורת מאליה לפני כל פגישה — בלי שתצטרך לעשות כלום. דורש שה-SMS/מייל מוגדרים.</div>
+      <div class="wk ${s.remind1On!==false?'':'off-row'}" id="rem1Row">
+        <label class="switch"><input type="checkbox" id="cR1On" ${s.remind1On!==false?'checked':''}><i></i></label>
+        <span class="name" style="flex:1">תזכורת מקדימה</span>
+        <select id="cR1H" style="width:auto">${[48,36,24,12,6].map(v=>`<option value="${v}" ${(s.remind1H||24)===v?'selected':''}>${v} שעות לפני</option>`).join('')}</select>
+      </div>
+      <div class="note" style="margin:2px 0 12px">מייל + SMS עם כפתור "אשר/ת הגעה" וקישור לשינוי/ביטול</div>
+      <div class="wk ${s.remind2On!==false?'':'off-row'}" id="rem2Row">
+        <label class="switch"><input type="checkbox" id="cR2On" ${s.remind2On!==false?'checked':''}><i></i></label>
+        <span class="name" style="flex:1">תזכורת אחרונה</span>
+        <select id="cR2H" style="width:auto">${[4,3,2,1].map(v=>`<option value="${v}" ${(s.remind2H||3)===v?'selected':''}>${v} שעות לפני</option>`).join('')}</select>
+      </div>
+      <div class="note" style="margin:2px 0 12px">SMS קצר "עוד מעט נתראה" סמוך לפגישה</div>
+      <div class="wk ${s.reqConfirm!==false?'':'off-row'}" id="reqcRow">
+        <label class="switch"><input type="checkbox" id="cReqC" ${s.reqConfirm!==false?'checked':''}><i></i></label>
+        <span class="name" style="flex:1">בקש אישור הגעה</span>
+      </div>
+      <div class="note" style="margin-top:2px">הלקוח מאשר בלחיצה — אתה רואה ביומן מי אישר ומקבל SMS</div>
+    </div>
   `;
+  ['rem1Row','rem2Row','reqcRow'].forEach(id=>{ const r=$('#'+id); if(r) r.querySelector('input[type=checkbox]').onchange=e=>r.classList.toggle('off-row',!e.target.checked); });
   el.querySelectorAll('.wk input[type=checkbox]').forEach(c=> c.onchange=e=>{
     e.target.closest('.wk').classList.toggle('off-row',!e.target.checked);
   });
@@ -1046,8 +1129,12 @@ function renderCfg(el){
       end: row.querySelector('.t-end').value
     }));
     const settings={slotMin:+$('#cSlot').value, bufferMin:+$('#cBuffer').value, minNoticeH:+$('#cNotice').value,
+      maxDaysAhead:+$('#cMaxDays').value,
       phone:$('#cPhone').value.replace(/\D/g,''), meetLink:$('#cMeet').value.trim(),
       twilioSid:$('#cTwSid').value.trim(), twilioToken:$('#cTwToken').value.trim(), twilioFrom:$('#cTwFrom').value.trim(),
+      remind1On:$('#cR1On').checked, remind1H:+$('#cR1H').value,
+      remind2On:$('#cR2On').checked, remind2H:+$('#cR2H').value,
+      reqConfirm:$('#cReqC').checked,
       weekTemplate:week};
     const btn=$('#saveCfg'); btn.disabled=true; btn.innerHTML='שומר<span class="spin"></span>';
     await adminOp('saveSettings',{settings});

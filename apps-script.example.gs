@@ -8,8 +8,8 @@
            Execute as: Me | Who has access: Anyone
    ============================================================ */
 
-var ADMIN_KEY    = 'YOUR_ADMIN_KEY';
-var NOTIFY_EMAIL = 'aviamira5@gmail.com';
+var ADMIN_KEY    = 'YOUR_ADMIN_KEY';   // קוד הניהול שלך — כל מספר/מחרוזת סודית
+var NOTIFY_EMAIL = 'you@example.com';   // המייל שמקבל התראות
 var TZ           = 'Asia/Jerusalem';
 var APP_URL      = 'https://aviel112.github.io/booking/';
 
@@ -20,11 +20,17 @@ var DEFAULT_SETTINGS = {
   slotMin: 60,
   bufferMin: 0,
   minNoticeH: 3,
+  maxDaysAhead: 60,
   phone: '',
   meetLink: '',
   twilioSid: '',
   twilioToken: '',
   twilioFrom: '',
+  remind1On: true,
+  remind1H: 24,
+  remind2On: true,
+  remind2H: 3,
+  reqConfirm: true,
   weekTemplate: [
     {on:true,  start:'07:00', end:'15:00'},
     {on:true,  start:'07:00', end:'15:00'},
@@ -55,7 +61,7 @@ function sheet_(name, headers) {
   }
   return sh;
 }
-var BK_HEAD = ['id','date','time','name','phone','email','note','status','createdAt','eventId'];
+var BK_HEAD = ['id','date','time','name','phone','email','note','status','createdAt','eventId','confirmed','r1','r2'];
 var SUM_HEAD = ['id','bookingId','date','clientName','clientEmail','measurements','homeworkClient','homeworkTrainer','changes','requests','updates','createdAt','sentAt'];
 function bkSheet_()  { return sheet_('בקשות ופגישות', BK_HEAD); }
 function avSheet_()  { return sheet_('זמינות', ['date','start','end']); }
@@ -88,9 +94,12 @@ function normTime_(v) {
 function getSettings_() {
   var rows = rows_(cfgSheet_(), ['key','value']);
   var s = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+  var NUMS = {slotMin:1, minNoticeH:1, bufferMin:1, maxDaysAhead:1, remind1H:1, remind2H:1};
+  var BOOLS = {remind1On:1, remind2On:1, reqConfirm:1};
   rows.forEach(function (r) {
     if (r.key === 'weekTemplate') { try { s.weekTemplate = JSON.parse(r.value); } catch (e) {} }
-    else if (r.key === 'slotMin' || r.key === 'minNoticeH' || r.key === 'bufferMin') s[r.key] = Number(r.value);
+    else if (NUMS[r.key]) s[r.key] = Number(r.value);
+    else if (BOOLS[r.key]) s[r.key] = String(r.value) === 'true';
     else if (r.key) s[r.key] = String(r.value);
   });
   return s;
@@ -102,8 +111,17 @@ function saveSettings_(s) {
   sh.appendRow(['slotMin', s.slotMin]);
   sh.appendRow(['minNoticeH', s.minNoticeH]);
   sh.appendRow(['bufferMin', s.bufferMin || 0]);
+  sh.appendRow(['maxDaysAhead', s.maxDaysAhead || 60]);
   sh.appendRow(['phone', s.phone || '']);
   sh.appendRow(['meetLink', s.meetLink || '']);
+  sh.appendRow(['twilioSid',   s.twilioSid   || '']);
+  sh.appendRow(['twilioToken', s.twilioToken || '']);
+  sh.appendRow(['twilioFrom',  s.twilioFrom  || '']);
+  sh.appendRow(['remind1On', s.remind1On !== false]);
+  sh.appendRow(['remind1H',  s.remind1H || 24]);
+  sh.appendRow(['remind2On', s.remind2On !== false]);
+  sh.appendRow(['remind2H',  s.remind2H || 3]);
+  sh.appendRow(['reqConfirm', s.reqConfirm !== false]);
   sh.appendRow(['weekTemplate', JSON.stringify(s.weekTemplate)]);
 }
 
@@ -178,6 +196,23 @@ function slotsFor_(dateStr, avail, settings, bookings) {
   return out;
 }
 
+function sendSms_(to, msg) {
+  var s = getSettings_();
+  if (!s.twilioSid || !s.twilioToken || !s.twilioFrom) return;
+  var phone = String(to).replace(/\D/g, '');
+  if (phone.length === 10 && phone.charAt(0) === '0') phone = '972' + phone.slice(1);
+  if (phone.charAt(0) !== '+') phone = '+' + phone;
+  try {
+    UrlFetchApp.fetch(
+      'https://api.twilio.com/2010-04-01/Accounts/' + s.twilioSid + '/Messages.json',
+      { method: 'post',
+        headers: { Authorization: 'Basic ' + Utilities.base64Encode(s.twilioSid + ':' + s.twilioToken) },
+        payload: { From: s.twilioFrom, To: phone, Body: msg },
+        muteHttpExceptions: true }
+    );
+  } catch (e) {}
+}
+
 /* ---------------- web app entry ---------------- */
 function doGet(e) {
   var a = (e.parameter && e.parameter.action) || '';
@@ -186,6 +221,10 @@ function doGet(e) {
     if (e.parameter.key !== ADMIN_KEY) return html_('⛔', 'אין הרשאה');
     var res = (a === 'approve') ? approve_(e.parameter.id) : reject_(e.parameter.id);
     return html_(res.ok ? (a === 'approve' ? '✅' : '🚫') : '⚠️', res.msg);
+  }
+  if (a === 'confirm') {
+    var c = confirmAttend_(e.parameter.id);
+    return html_(c.ok ? '🎉' : '⚠️', c.msg, true);
   }
   return json_({ ok: true, service: 'aviel-booking' });
 }
@@ -197,6 +236,7 @@ function doPost(e) {
   if (a === 'book')   return json_(book_(body));
   if (a === 'status') return json_(statusOf_(body.ids || []));
   if (a === 'cancelMine') return json_(cancelMine_(body));
+  if (a === 'confirmMine') return json_(confirmAttend_(body.id));
   if (a === 'reschedule') return json_(reschedule_(body));
   if (a === 'admin') {
     if (body.key !== ADMIN_KEY) return json_({ ok: false, error: 'unauthorized' });
@@ -205,6 +245,8 @@ function doPost(e) {
     if (body.op === 'approve') return json_(approve_(body.id));
     if (body.op === 'reject')  return json_(reject_(body.id));
     if (body.op === 'cancel')  return json_(cancel_(body.id, true));
+    if (body.op === 'markDone')   return json_(markStatus_(body.id, 'completed'));
+    if (body.op === 'markNoshow') return json_(markStatus_(body.id, 'noshow'));
     if (body.op === 'setAvail')      return json_(setAvail_(body));
     if (body.op === 'applyTemplate') return json_(applyTemplate_(body));
     if (body.op === 'saveSettings')  { saveSettings_(body.settings); return json_({ ok: true }); }
@@ -217,7 +259,10 @@ function doPost(e) {
 function json_(o) {
   return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
 }
-function html_(emoji, msg) {
+function html_(emoji, msg, clientView) {
+  var link = clientView
+    ? '<a href="' + APP_URL + '">לעמוד הזימונים ←</a>'
+    : '<a href="' + APP_URL + '?admin=1">למערכת הניהול ←</a>';
   return HtmlService.createHtmlOutput(
     '<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<style>body{background:#0a0c12;color:#eef0ff;font-family:-apple-system,Arial;display:flex;align-items:center;justify-content:center;min-height:90vh;text-align:center}' +
@@ -225,7 +270,7 @@ function html_(emoji, msg) {
     '.e{font-size:3.5rem;margin-bottom:14px}h2{color:#00d68f;font-size:1.15rem;line-height:1.6}' +
     'a{display:inline-block;margin-top:22px;color:#00d68f;font-weight:700}</style></head>' +
     '<body><div class="c"><div class="e">' + emoji + '</div><h2>' + msg + '</h2>' +
-    '<a href="' + APP_URL + '?admin=1">למערכת הניהול ←</a></div></body></html>'
+    link + '</div></body></html>'
   );
 }
 
@@ -235,9 +280,10 @@ function publicState_() {
   var avail = getAvail_();
   var bookings = getBookings_();
   var today = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
+  var maxD = Utilities.formatDate(new Date(Date.now() + (settings.maxDaysAhead || 60) * 864e5), TZ, 'yyyy-MM-dd');
   var slots = {};
   Object.keys(avail).forEach(function (d) {
-    if (d >= today) {
+    if (d >= today && d <= maxD) {
       var s = slotsFor_(d, avail, settings, bookings);
       if (s.length) slots[d] = s;
     }
@@ -265,7 +311,7 @@ function book_(b) {
 
     var id = 'bk' + Date.now() + Math.floor(Math.random() * 1000);
     bkSheet_().appendRow([id, b.date, b.time, b.name, b.phone, b.email, b.note || '', 'pending',
-      Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm'), '']);
+      Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm'), '', '', '', '']);
 
     notifyAviel_(id, b);
     mailClient_(b, 'received');
@@ -278,7 +324,7 @@ function book_(b) {
 function statusOf_(ids) {
   var map = {};
   getBookings_().forEach(function (b) {
-    if (ids.indexOf(b.id) !== -1) map[b.id] = { status: b.status, date: b.date, time: b.time, name: b.name };
+    if (ids.indexOf(b.id) !== -1) map[b.id] = { status: b.status, date: b.date, time: b.time, name: b.name, confirmed: b.confirmed === 'yes' };
   });
   return { ok: true, bookings: map };
 }
@@ -306,7 +352,7 @@ function reschedule_(body) {
     if (bk.eventId) {
       try { CalendarApp.getDefaultCalendar().getEventById(bk.eventId).deleteEvent(); } catch (e) {}
     }
-    setBookingFields_(bk._row, { date: body.date, time: body.time, status: 'pending', eventId: '' });
+    setBookingFields_(bk._row, { date: body.date, time: body.time, status: 'pending', eventId: '', confirmed: '', r1: '', r2: '' });
     notifyAviel_(bk.id, { name: bk.name, phone: bk.phone, email: bk.email, date: body.date, time: body.time,
       note: (bk.note ? bk.note + ' · ' : '') + '🔄 שינוי מועד' });
     return { ok: true };
@@ -370,6 +416,25 @@ function cancel_(id, byAdmin) {
   else MailApp.sendEmail({ to: NOTIFY_EMAIL, subject: '❌ ביטול פגישה — ' + bk.name + ' | ' + heDate_(bk.date) + ' ' + bk.time,
     htmlBody: mailShell_('המתאמן ביטל את הפגישה', '<b>' + esc_(bk.name) + '</b> ביטל את הפגישה של ' + heDate_(bk.date) + ' בשעה ' + bk.time + '.<br>השעה חזרה להיות פנויה במערכת.') });
   return { ok: true, msg: 'הפגישה בוטלה' };
+}
+
+function markStatus_(id, status) {
+  var bk = findBooking_(id);
+  if (!bk) return { ok: false, msg: 'לא נמצא' };
+  setBookingFields_(bk._row, { status: status });
+  return { ok: true, msg: status === 'completed' ? 'סומן כבוצע ✓' : 'סומן כלא-הגיע' };
+}
+
+function confirmAttend_(id) {
+  var bk = findBooking_(id);
+  if (!bk) return { ok: false, msg: 'הפגישה לא נמצאה' };
+  if (bk.status === 'cancelled' || bk.status === 'rejected') return { ok: false, msg: 'הפגישה כבר בוטלה' };
+  if (bk.confirmed === 'yes')
+    return { ok: true, msg: 'כבר אישרת הגעה — נתראה ' + heDate_(bk.date) + ' בשעה ' + bk.time + ' 💪' };
+  setBookingFields_(bk._row, { confirmed: 'yes' });
+  var adminPhone = getSettings_().phone;
+  if (adminPhone) sendSms_(adminPhone, '✅ ' + bk.name + ' אישר/ה הגעה — ' + heDate_(bk.date) + ' ' + bk.time);
+  return { ok: true, msg: 'מעולה! אישרת הגעה לפגישה ב' + heDate_(bk.date) + ' בשעה ' + bk.time + ' 🤝' };
 }
 
 function setAvail_(body) {
@@ -481,65 +546,106 @@ function notifyAviel_(id, b) {
     subject: '🔔 בקשת פגישה חדשה — ' + b.name + ' | ' + heDate_(b.date) + ' ' + b.time,
     htmlBody: mailShell_('בקשת פגישה חדשה ממתינה לאישור שלך', inner, btns)
   });
+  var adminPhone = getSettings_().phone;
+  if (adminPhone) sendSms_(adminPhone, '🔔 בקשה חדשה: ' + b.name + ' | ' + heDate_(b.date) + ' ' + b.time + '. לאישור: ' + APP_URL + '?admin=1');
 }
 
-/* SMS via Twilio — set twilioSid / twilioToken / twilioFrom in Settings tab */
-function sendSms_(to, msg) {
-  var cfg = getSettings_();
-  if (!cfg.twilioSid || !cfg.twilioToken || !cfg.twilioFrom) return;
-  var phone = (to||'').replace(/\D/g,'');
-  if (phone.startsWith('0')) phone = '972' + phone.slice(1);
-  if (!phone.startsWith('+')) phone = '+' + phone;
-  try {
-    UrlFetchApp.fetch(
-      'https://api.twilio.com/2010-04-01/Accounts/' + cfg.twilioSid + '/Messages.json',
-      { method:'post', headers:{ Authorization:'Basic '+Utilities.base64Encode(cfg.twilioSid+':'+cfg.twilioToken) },
-        payload:{ From: cfg.twilioFrom, To: phone, Body: msg }, muteHttpExceptions: true }
-    );
-  } catch(e) {}
+function dateBox_(bk, settings) {
+  return '<div style="background:rgba(0,214,143,.12);border:2px solid #00d68f;border-radius:14px;padding:16px 20px;text-align:center;margin:16px 0">' +
+    '<div style="color:#00d68f;font-size:.74rem;font-weight:bold;margin-bottom:5px;letter-spacing:.04em">מועד הפגישה</div>' +
+    '<div style="color:#eef0ff;font-size:1.15rem;font-weight:bold">' + esc_(heDate_(bk.date)) + '</div>' +
+    '<div style="color:#00d68f;font-size:1.05rem;font-weight:bold;margin-top:3px">' + bk.time + ' · ' + settings.slotMin + ' דקות</div>' +
+    '</div>';
 }
 
 function mailClient_(bk, kind) {
-  var subj, title, inner;
+  var settings = getSettings_();
+  var subj, title, inner, smsText;
+  var dateBox = dateBox_(bk, settings);
+
   if (kind === 'received') {
-    subj = '📩 קיבלנו את הבקשה שלך — ' + heDate_(bk.date) + ' בשעה ' + bk.time;
-    title = 'הבקשה אצל אביאל — ממתינה לאישור';
-    inner = 'היי ' + esc_(bk.name) + ',<br>הבקשה שלך ל<b style="color:#00d68f">' + heDate_(bk.date) + ' · ' + bk.time +
-      '</b> התקבלה.<br>ברגע שאביאל יאשר — יישלח אליך זימון ליומן. אין צורך לעשות כלום בינתיים.';
+    subj  = '📩 קיבלנו את הבקשה שלך — ' + heDate_(bk.date) + ' ' + bk.time;
+    title = 'הבקשה אצל אביאל 🎉';
+    inner = 'היי <b>' + esc_(bk.name) + '</b>, קיבלנו את הבקשה שלך!' + dateBox +
+      '<div style="color:#8892b0;font-size:.85rem;line-height:1.9">' +
+      '① אביאל יאשר בקרוב<br>' +
+      '② ברגע האישור — זימון ליומן גוגל אצלך במייל<br>' +
+      '③ לשינוי מועד — <a href="' + APP_URL + '" style="color:#00d68f">לחצ/י כאן</a>' +
+      '</div><br>לא צריך לעשות כלום בינתיים 💪';
+    smsText = 'היי ' + bk.name + ' 👋 קיבלנו את הבקשה שלך לפגישה ב' + heDate_(bk.date) + ' בשעה ' + bk.time + '. ברגע שאביאל יאשר תקבל/י עדכון. 💪';
   } else if (kind === 'approved') {
-    subj = '✅ הפגישה שלך אושרה — ' + heDate_(bk.date) + ' בשעה ' + bk.time;
-    title = 'הפגישה אושרה — נתראה! 🤝';
-    var lnk = getSettings_().meetLink;
-    inner = 'היי ' + esc_(bk.name) + ',<br>אביאל אישר את הפגישה שלך:<br><b style="color:#00d68f">' +
-      heDate_(bk.date) + ' · ' + bk.time + '</b><br><br>זימון ליומן גוגל נשלח אליך בנפרד — אשר אותו וזה ביומן.' +
-      (lnk ? '<br><br><a href="' + lnk + '" style="display:inline-block;background:#00d68f;color:#06281c;font-weight:bold;padding:12px 26px;border-radius:10px;text-decoration:none">🎥 קישור להצטרפות לפגישה</a>' : '');
+    subj  = '✅ הפגישה אושרה — ' + heDate_(bk.date) + ' ' + bk.time;
+    title = 'הפגישה אושרה! 🤝';
+    var lnk = settings.meetLink;
+    inner = 'היי <b>' + esc_(bk.name) + '</b>, אביאל אישר את הפגישה 🎉' + dateBox +
+      '<div style="color:#8892b0;font-size:.85rem;line-height:1.9;margin-bottom:14px">' +
+      '📧 זימון ליומן גוגל נשלח אליך בנפרד — אשר/י אותו כדי שיופיע ביומן.' +
+      '</div>' +
+      (lnk ? '<div style="text-align:center;margin-bottom:16px"><a href="' + lnk + '" style="display:inline-block;background:#00d68f;color:#06281c;font-weight:bold;padding:13px 28px;border-radius:10px;text-decoration:none;font-size:1rem">🎥 הצטרפות לפגישה</a></div>' : '') +
+      '<div style="color:#8892b0;font-size:.78rem">לשינוי/ביטול: <a href="' + APP_URL + '" style="color:#00d68f">כאן ←</a></div>';
+    smsText = '✅ הפגישה אושרה! ' + heDate_(bk.date) + ' בשעה ' + bk.time + '.' + (lnk ? ' קישור: ' + lnk : ' זימון נשלח למייל 📧');
   } else if (kind === 'rejected') {
-    subj = 'לגבי בקשת הפגישה שלך — ' + heDate_(bk.date) + ' ' + bk.time;
-    title = 'השעה הזו לא מסתדרת הפעם';
-    inner = 'היי ' + esc_(bk.name) + ',<br>השעה שביקשת (' + heDate_(bk.date) + ' · ' + bk.time +
-      ') לא מתאפשרת.<br><br><a href="' + APP_URL + '" style="color:#00d68f;font-weight:bold">בחר שעה אחרת כאן ←</a>';
+    subj  = 'לגבי בקשת הפגישה שלך';
+    title = 'השעה לא מסתדרת הפעם';
+    inner = 'היי <b>' + esc_(bk.name) + '</b>,<br><br>' +
+      'השעה שביקשת — ' + heDate_(bk.date) + ' · ' + bk.time + ' — לא מסתדרת הפעם.<br><br>' +
+      '<div style="text-align:center"><a href="' + APP_URL + '" style="display:inline-block;background:#00d68f;color:#06281c;font-weight:bold;padding:13px 28px;border-radius:10px;text-decoration:none">בחר/י שעה אחרת ←</a></div>';
+    smsText = 'שלום ' + bk.name + ', בקשת הפגישה ל' + heDate_(bk.date) + ' לא אושרה. לקביעה חדשה: ' + APP_URL;
   } else {
-    subj = 'הפגישה בוטלה — ' + heDate_(bk.date) + ' ' + bk.time;
+    subj  = 'הפגישה בוטלה — ' + heDate_(bk.date) + ' ' + bk.time;
     title = 'הפגישה בוטלה';
-    inner = 'היי ' + esc_(bk.name) + ',<br>הפגישה של ' + heDate_(bk.date) + ' בשעה ' + bk.time +
-      ' בוטלה.<br><br><a href="' + APP_URL + '" style="color:#00d68f;font-weight:bold">לקביעת מועד חדש ←</a>';
+    inner = 'היי <b>' + esc_(bk.name) + '</b>,<br><br>' +
+      'הפגישה של ' + heDate_(bk.date) + ' בשעה ' + bk.time + ' בוטלה.<br><br>' +
+      '<div style="text-align:center"><a href="' + APP_URL + '" style="display:inline-block;background:#00d68f;color:#06281c;font-weight:bold;padding:13px 28px;border-radius:10px;text-decoration:none">קביעת מועד חדש ←</a></div>';
+    smsText = 'הפגישה ב' + heDate_(bk.date) + ' בשעה ' + bk.time + ' בוטלה. לקביעה חדשה: ' + APP_URL;
   }
-  try {
-    MailApp.sendEmail({ to: bk.email, subject: subj, htmlBody: mailShell_(title, inner) });
-  } catch (e) {}
-  // SMS notification
-  var smsText = '';
-  if (kind === 'received') smsText = 'היי ' + bk.name + ' 👋 קיבלנו את הבקשה שלך לפגישה ב' + heDate_(bk.date) + ' בשעה ' + bk.time + '. ברגע שאביאל יאשר תקבל/י עדכון. 💪';
-  else if (kind === 'approved') { var lnk2 = getSettings_().meetLink; smsText = '✅ הפגישה אושרה! ' + heDate_(bk.date) + ' בשעה ' + bk.time + '.' + (lnk2 ? ' קישור: ' + lnk2 : ' זימון נשלח למייל 📧'); }
-  else if (kind === 'rejected') smsText = 'שלום ' + bk.name + ', בקשת הפגישה ל' + heDate_(bk.date) + ' לא אושרה. לקביעה חדשה: ' + APP_URL;
-  else smsText = 'הפגישה ב' + heDate_(bk.date) + ' בשעה ' + bk.time + ' בוטלה. לקביעה חדשה: ' + APP_URL;
-  if (bk.phone && smsText) sendSms_(bk.phone, smsText);
+  try { MailApp.sendEmail({ to: bk.email, subject: subj, htmlBody: mailShell_(title, inner) }); } catch (e) {}
+  if (smsText) sendSms_(bk.phone, smsText);
+}
+
+/* ---------------- reminders ---------------- */
+/* רץ כל שעה — שולח תזכורת ראשונה (מייל+SMS) ותזכורת אחרונה (SMS) לפי ההגדרות */
+function sendReminders() {
+  var settings = getSettings_();
+  if (!settings.remind1On && !settings.remind2On) return;
+  var base = ScriptApp.getService().getUrl();
+  var now = Date.now();
+  getBookings_().forEach(function (b) {
+    if (b.status !== 'approved') return;
+    var hrs = (ilDate_(b.date, b.time).getTime() - now) / 3600000;
+    if (hrs <= 0) return;
+    if (settings.remind1On && !b.r1 && hrs <= settings.remind1H && hrs > settings.remind2H) {
+      sendReminderMsg_(b, settings, base, 1);
+      setBookingFields_(b._row, { r1: 'sent' });
+    } else if (settings.remind2On && !b.r2 && hrs <= settings.remind2H) {
+      sendReminderMsg_(b, settings, base, 2);
+      setBookingFields_(b._row, { r2: 'sent' });
+    }
+  });
+}
+
+function sendReminderMsg_(b, settings, base, which) {
+  var confirmUrl = base + '?action=confirm&id=' + b.id;
+  var when = heDate_(b.date) + ' בשעה ' + b.time;
+  if (which === 1) {
+    var inner = 'היי <b>' + esc_(b.name) + '</b>, תזכורת ידידותית 👋' + dateBox_(b, settings) +
+      (settings.reqConfirm ? '<div style="text-align:center;margin-bottom:14px"><a href="' + confirmUrl + '" style="display:inline-block;background:#00d68f;color:#06281c;font-weight:bold;padding:13px 30px;border-radius:10px;text-decoration:none;font-size:1rem">✅ אני מאשר/ת הגעה</a></div>' : '') +
+      (settings.meetLink ? '<div style="text-align:center;margin-bottom:14px"><a href="' + settings.meetLink + '" style="color:#00d68f;font-weight:bold">🎥 קישור להצטרפות לפגישה</a></div>' : '') +
+      '<div style="color:#8892b0;font-size:.8rem;text-align:center">צריך/ה לשנות? <a href="' + APP_URL + '" style="color:#00d68f">שינוי או ביטול כאן ←</a></div>';
+    try { MailApp.sendEmail({ to: b.email, subject: '⏰ תזכורת לפגישה — ' + when, htmlBody: mailShell_('תזכורת: פגישה מתקרבת ⏰', inner) }); } catch (e) {}
+    sendSms_(b.phone, '⏰ תזכורת: פגישה עם אביאל ' + when + '.' + (settings.reqConfirm ? ' לאישור הגעה: ' + confirmUrl : ' 💪'));
+  } else {
+    sendSms_(b.phone, '⏰ עוד מעט נתראה! הפגישה היום בשעה ' + b.time + '.' + (settings.meetLink ? ' קישור: ' + settings.meetLink : ' 💪'));
+  }
 }
 
 /* ---------------- daily digest ---------------- */
 function ensureTrigger_() {
-  var has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'dailyDigest'; });
-  if (!has) ScriptApp.newTrigger('dailyDigest').timeBased().atHour(6).everyDays(1).inTimezone(TZ).create();
+  var fns = ScriptApp.getProjectTriggers().map(function (t) { return t.getHandlerFunction(); });
+  if (fns.indexOf('dailyDigest') === -1)
+    ScriptApp.newTrigger('dailyDigest').timeBased().atHour(6).everyDays(1).inTimezone(TZ).create();
+  if (fns.indexOf('sendReminders') === -1)
+    ScriptApp.newTrigger('sendReminders').timeBased().everyHours(1).create();
 }
 function dailyDigest() {
   var today = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');

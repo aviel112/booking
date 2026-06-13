@@ -1,1 +1,5 @@
 apps-script.gs
+node_modules/
+package.json
+package-lock.json
+.clasp.json
