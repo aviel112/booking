@@ -254,6 +254,36 @@ a{color:var(--grn)}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(5,48,36,.3);border-top-color:#053024;border-radius:50%;animation:rot .7s linear infinite;vertical-align:-2px;margin-left:6px}
 @keyframes rot{to{transform:rotate(360deg)}}
 footer{position:relative;z-index:1;text-align:center;color:var(--mut);font-size:.7rem;padding:26px 16px 10px;opacity:.7}
+
+/* ---------- next meeting banner ---------- */
+.next-mtg{
+  background:rgba(0,214,143,.07);border:1px solid rgba(0,214,143,.3);border-radius:16px;
+  padding:13px 16px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px;
+}
+.next-mtg .label{font-size:.74rem;color:var(--grn);font-weight:800;margin-bottom:2px}
+.next-mtg .when{font-size:.9rem;font-weight:800;color:var(--txt)}
+.next-mtg .actions{display:flex;gap:7px;flex-shrink:0}
+.next-mtg .actions button{background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:var(--grn);border-radius:9px;padding:7px 11px;font-size:.75rem;font-weight:700}
+
+/* ---------- share button ---------- */
+.share-btn{
+  display:inline-flex;align-items:center;gap:6px;background:rgba(37,211,102,.12);
+  border:1px solid rgba(37,211,102,.4);color:#25d366;border-radius:12px;
+  padding:9px 16px;font-size:.8rem;font-weight:700;cursor:pointer;transition:.2s;
+  text-decoration:none;
+}
+.share-btn:hover{background:rgba(37,211,102,.2)}
+.share-wrap{display:flex;justify-content:center;gap:9px;margin-top:14px;flex-wrap:wrap}
+
+/* ---------- done screen extras ---------- */
+.done-actions{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+.done-actions .btn{padding:13px}
+.cal-dl-btn{background:rgba(94,162,255,.1);border:1px solid rgba(94,162,255,.4);color:var(--blu);border-radius:13px;padding:13px;font-size:.9rem;font-weight:700;width:100%;transition:.2s}
+.cal-dl-btn:hover{background:rgba(94,162,255,.2)}
+
+/* ---------- stat highlight ---------- */
+.stat.grn-hi{background:rgba(0,214,143,.08);border-color:rgba(0,214,143,.3)}
+.stat.grn-hi b{color:var(--grn2)}
 </style>
 </head>
 <body>
@@ -303,6 +333,52 @@ const esc = s => String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>
 function toast(msg){
   const t=$('#toast'); t.textContent=msg; t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'),2600);
+}
+
+function launchConfetti(){
+  const cvs=document.createElement('canvas');
+  cvs.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:9999';
+  document.body.appendChild(cvs);
+  const ctx=cvs.getContext('2d');
+  cvs.width=innerWidth; cvs.height=innerHeight;
+  const ps=Array.from({length:80},()=>({
+    x:Math.random()*cvs.width, y:-20,
+    r:Math.random()*5+2,
+    c:['#00d68f','#00ffc2','#5ea2ff','#ffb454','#ff6b6b','#ffffff'][Math.floor(Math.random()*6)],
+    vx:(Math.random()-.5)*5, vy:Math.random()*3+2,
+    rot:Math.random()*360, vr:(Math.random()-.5)*14, shape:Math.random()>.5?'rect':'circle'
+  }));
+  let af;
+  (function draw(){
+    ctx.clearRect(0,0,cvs.width,cvs.height);
+    let alive=false;
+    ps.forEach(p=>{
+      if(p.y<cvs.height+20){alive=true;p.y+=p.vy;p.x+=p.vx;p.rot+=p.vr;p.vy+=0.055;}
+      ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.rot*Math.PI/180);
+      ctx.fillStyle=p.c+'cc';
+      if(p.shape==='circle'){ ctx.beginPath();ctx.arc(0,0,p.r,0,Math.PI*2);ctx.fill(); }
+      else ctx.fillRect(-p.r,-p.r/2,p.r*2,p.r);
+      ctx.restore();
+    });
+    if(alive) af=requestAnimationFrame(draw); else cvs.remove();
+  })();
+  setTimeout(()=>{cancelAnimationFrame(af);cvs.remove();},5000);
+}
+
+function makeIcs(date, time, slotMin, name){
+  const p = t => parseInt(t,10);
+  const [y,mo,d] = date.split('-').map(Number);
+  const [hh,mm] = time.split(':').map(Number);
+  const end = mm + slotMin;
+  const eh = hh + Math.floor(end/60), em = end%60;
+  const fmt = (n,l=2) => String(n).padStart(l,'0');
+  const dt = s => `${fmt(y,4)}${fmt(mo)}${fmt(d)}T${fmt(s[0])}${fmt(s[1])}00`;
+  return `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nDTSTART:${dt([hh,mm])}\nDTEND:${dt([eh,em])}\nSUMMARY:פגישה עם אביאל\nDESCRIPTION:פגישה אישית 1:1 עם אביאל\nEND:VEVENT\nEND:VCALENDAR`;
+}
+function downloadIcs(date, time, slotMin){
+  const blob = new Blob([makeIcs(date,time,slotMin)],{type:'text/calendar'});
+  const a = document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download='פגישה-עם-אביאל.ics'; a.click();
 }
 
 /* ---------- API ---------- */
@@ -357,6 +433,8 @@ function renderCal(){
   const today = fmtDate(new Date());
   const first = new Date(y,m,1);
   const dim = new Date(y,m+1,0).getDate();
+  // Build next-meeting banner from localStorage
+  const nextMtg = state._nextMeeting || null;
 
   let cells = '';
   for(let i=0;i<first.getDay();i++) cells += '<span></span>';
@@ -368,8 +446,15 @@ function renderCal(){
       <span>${d}</span>${avail?`<span class="n-slots">${n} פנויות</span>`:''}</button>`;
   }
 
+  const waShareLink = encodeURIComponent(`קובעים פגישה עם אביאל? 💪\nבחר/י שעה שנוחה לך — ${location.origin+location.pathname}`);
   app.innerHTML = `
     <div class="view">
+      ${nextMtg ? `<div class="next-mtg">
+        <div><div class="label">📅 הפגישה הבאה שלך</div><div class="when">${heDate(nextMtg.date)} · ${nextMtg.time}</div></div>
+        <div class="actions">
+          <button id="goMine">הפגישות שלי ←</button>
+        </div>
+      </div>` : ''}
       ${reschedId ? `<div class="resched-banner"><span>🔄 בוחרים מועד חדש לפגישה — היום והשעה הנוכחיים ישוחררו</span><button id="cancelResched">ביטול</button></div>` : ''}
       ${stepper(1)}
       <div class="card">
@@ -389,6 +474,12 @@ function renderCal(){
           <span><i style="background:rgba(255,255,255,.1)"></i> סגור / מלא</span>
         </div>
       </div>
+      <div class="share-wrap">
+        <a class="share-btn" href="https://wa.me/?text=${waShareLink}" target="_blank">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+          שלח/י ללקוח/ה
+        </a>
+      </div>
       <button class="foot-link" id="mineBtn">הפגישות שלי</button>
       <button class="foot-link" id="trainerBtn" style="opacity:.7">🔑 כניסת מאמן</button>
     </div>
@@ -399,6 +490,7 @@ function renderCal(){
   $('#mineBtn').onclick = ()=>{ view='mine'; render(); };
   const tb = $('#trainerBtn'); if(tb) tb.onclick = ()=> $('#adminBtn').click();
   const cr = $('#cancelResched'); if(cr) cr.onclick = ()=>{ reschedId=null; render(); };
+  const gm = $('#goMine'); if(gm) gm.onclick = ()=>{ view='mine'; render(); };
 }
 
 function stepper(n){
@@ -485,6 +577,14 @@ function renderForm(){
   `;
   $('#back').onclick=()=>{ view='slots'; render(); };
   $('#confirm').onclick=confirmBooking;
+  // Auto-format Israeli phone number
+  $('#fPhone').addEventListener('input', e=>{
+    let v = e.target.value.replace(/\D/g,'');
+    if(v.length>3 && v.length<=7) v=v.slice(0,3)+'-'+v.slice(3);
+    else if(v.length>7) v=v.slice(0,3)+'-'+v.slice(3,10);
+    const cur=e.target.selectionStart;
+    e.target.value=v;
+  });
 }
 
 async function confirmBooking(){
@@ -518,22 +618,33 @@ async function confirmBooking(){
 /* ---------- client: done ---------- */
 function renderDone(){
   const bk=lastBooking;
+  const waMsg = encodeURIComponent(`קבעתי פגישה עם אביאל ✅\n📅 ${heDate(bk.date)} · ${bk.time}\nלקביעת פגישה גם אתה/את: ${location.origin+location.pathname}`);
   app.innerHTML = `
     <div class="view">
       <div class="card success">
         <div class="big">🎉</div>
         <h2>הבקשה אצל אביאל !</h2>
-        <p><b style="color:var(--txt)">${heDate(bk.date)} · ${bk.time}</b></p>
+        <p style="margin-bottom:4px"><b style="color:var(--txt);font-size:1.05rem">${heDate(bk.date)} · ${bk.time}</b></p>
+        <p style="color:var(--mut);font-size:.82rem;margin-bottom:18px">אישור קבלה נשלח למייל</p>
         <div class="timeline">
           <div class="tl done"><div class="ic">✓</div><div class="tx"><b>הבקשה נשלחה</b><span>אישור קבלה נשלח אליך למייל עכשיו</span></div></div>
           <div class="tl"><div class="ic">⏳</div><div class="tx"><b>ממתין לאישור</b><span>בדרך כלל תוך זמן קצר</span></div></div>
-          <div class="tl"><div class="ic">📅</div><div class="tx"><b>זימון ליומן</b><span>ברגע האישור — מייל + אירוע ביומן, כולל קישור הפגישה</span></div></div>
+          <div class="tl"><div class="ic">📅</div><div class="tx"><b>זימון ליומן</b><span>ברגע האישור — מייל + אירוע ביומן כולל קישור</span></div></div>
         </div>
-        <button class="btn btn-ghost" id="mine" style="margin-bottom:9px">מעקב — הפגישות שלי</button>
-        <button class="btn btn-ghost" id="home">קביעת פגישה נוספת</button>
+        <div class="done-actions">
+          <button class="cal-dl-btn" id="dlIcs">📅 הוסף ליומן שלי (.ics)</button>
+          <a class="share-btn" style="justify-content:center" href="https://wa.me/?text=${waMsg}" target="_blank">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+            שתפ/י עם חבר/ה בווטסאפ
+          </a>
+          <button class="btn btn-ghost" id="mine">מעקב — הפגישות שלי</button>
+          <button class="btn btn-ghost" id="home">קביעת פגישה נוספת</button>
+        </div>
       </div>
     </div>
   `;
+  launchConfetti();
+  $('#dlIcs').onclick=()=>downloadIcs(bk.date, bk.time, state.slotMin||40);
   $('#mine').onclick=()=>{ view='mine'; render(); };
   $('#home').onclick=async()=>{ await refreshState(); selDate=selTime=null; view='cal'; render(); };
 }
@@ -645,11 +756,15 @@ function renderPending(el){
   const appr = adminData.bookings.filter(b=>b.status==='approved');
   const todayN = appr.filter(b=>b.date===today).length;
   const weekN = appr.filter(b=>b.date>=today && b.date<=week).length;
+  const thisMonth = today.slice(0,7);
+  const monthN = appr.filter(b=>b.date.startsWith(thisMonth)).length;
+  const totalEver = adminData.bookings.filter(b=>b.status==='approved').length;
   el.innerHTML = `
     <div class="stats">
-      <div class="stat"><b>${todayN}</b><span>פגישות היום</span></div>
+      <div class="stat${todayN>0?' grn-hi':''}"><b>${todayN}</b><span>פגישות היום</span></div>
       <div class="stat"><b>${weekN}</b><span>בשבוע הקרוב</span></div>
-      <div class="stat"><b>${list.length}</b><span>ממתינות לאישור</span></div>
+      <div class="stat grn-hi"><b>${monthN}</b><span>החודש סה"כ</span></div>
+      <div class="stat"><b>${list.length}</b><span>ממתינות</span></div>
     </div>`;
   el.innerHTML += `
     <div class="card">
@@ -987,6 +1102,17 @@ $('#adminBtn').onclick = async ()=>{
     if(await loadAdmin()){ isAdmin=true; view='admin'; }
   }
   render();
+  // טעינת הפגישה הבאה ברקע
+  const savedIds = JSON.parse(localStorage.getItem('aviel_my_bookings')||'[]');
+  if(savedIds.length){
+    apiPost({action:'status', ids:savedIds}).then(r=>{
+      const today2 = fmtDate(new Date());
+      const next = (Object.values(r.bookings||{}))
+        .filter(b=>b.status==='approved' && b.date>=today2)
+        .sort((a,b)=>a.date+a.time<b.date+b.time?-1:1)[0];
+      if(next){ state._nextMeeting=next; if(view==='cal') render(); }
+    }).catch(()=>{});
+  }
 })();
 </script>
 </body>
