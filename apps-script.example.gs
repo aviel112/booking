@@ -22,6 +22,9 @@ var DEFAULT_SETTINGS = {
   minNoticeH: 3,
   phone: '',
   meetLink: '',
+  twilioSid: '',
+  twilioToken: '',
+  twilioFrom: '',
   weekTemplate: [
     {on:true,  start:'07:00', end:'15:00'},
     {on:true,  start:'07:00', end:'15:00'},
@@ -480,6 +483,22 @@ function notifyAviel_(id, b) {
   });
 }
 
+/* SMS via Twilio — set twilioSid / twilioToken / twilioFrom in Settings tab */
+function sendSms_(to, msg) {
+  var cfg = getSettings_();
+  if (!cfg.twilioSid || !cfg.twilioToken || !cfg.twilioFrom) return;
+  var phone = (to||'').replace(/\D/g,'');
+  if (phone.startsWith('0')) phone = '972' + phone.slice(1);
+  if (!phone.startsWith('+')) phone = '+' + phone;
+  try {
+    UrlFetchApp.fetch(
+      'https://api.twilio.com/2010-04-01/Accounts/' + cfg.twilioSid + '/Messages.json',
+      { method:'post', headers:{ Authorization:'Basic '+Utilities.base64Encode(cfg.twilioSid+':'+cfg.twilioToken) },
+        payload:{ From: cfg.twilioFrom, To: phone, Body: msg }, muteHttpExceptions: true }
+    );
+  } catch(e) {}
+}
+
 function mailClient_(bk, kind) {
   var subj, title, inner;
   if (kind === 'received') {
@@ -508,6 +527,13 @@ function mailClient_(bk, kind) {
   try {
     MailApp.sendEmail({ to: bk.email, subject: subj, htmlBody: mailShell_(title, inner) });
   } catch (e) {}
+  // SMS notification
+  var smsText = '';
+  if (kind === 'received') smsText = 'היי ' + bk.name + ' 👋 קיבלנו את הבקשה שלך לפגישה ב' + heDate_(bk.date) + ' בשעה ' + bk.time + '. ברגע שאביאל יאשר תקבל/י עדכון. 💪';
+  else if (kind === 'approved') { var lnk2 = getSettings_().meetLink; smsText = '✅ הפגישה אושרה! ' + heDate_(bk.date) + ' בשעה ' + bk.time + '.' + (lnk2 ? ' קישור: ' + lnk2 : ' זימון נשלח למייל 📧'); }
+  else if (kind === 'rejected') smsText = 'שלום ' + bk.name + ', בקשת הפגישה ל' + heDate_(bk.date) + ' לא אושרה. לקביעה חדשה: ' + APP_URL;
+  else smsText = 'הפגישה ב' + heDate_(bk.date) + ' בשעה ' + bk.time + ' בוטלה. לקביעה חדשה: ' + APP_URL;
+  if (bk.phone && smsText) sendSms_(bk.phone, smsText);
 }
 
 /* ---------------- daily digest ---------------- */
