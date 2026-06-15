@@ -215,6 +215,30 @@ a{color:var(--grn)}
 .pwa-pill span{flex:1;font-size:.8rem;font-weight:600;color:var(--txt)}
 .pwa-pill #pwaGo{background:var(--grad);border:none;color:#053024;font-weight:800;border-radius:9px;padding:8px 16px;font-size:.8rem}
 .pwa-pill #pwaX{background:none;border:none;color:var(--mut);font-size:.9rem;padding:4px 6px}
+/* service picker */
+.svc-list{display:flex;flex-direction:column;gap:10px;margin-top:4px}
+.svc-card{text-align:right;background:var(--surf2);border:1px solid var(--brd);border-radius:14px;padding:15px 16px;transition:.18s;cursor:pointer;width:100%}
+.svc-card:hover,.svc-card:active{border-color:var(--grn);background:rgba(0,214,143,.06)}
+.svc-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.svc-card-name{font-size:1rem;font-weight:800;color:var(--txt)}
+.svc-free{background:var(--grad);color:#053024;font-size:.66rem;font-weight:900;border-radius:20px;padding:3px 10px}
+.svc-desc{color:var(--mut);font-size:.8rem;margin-top:4px;line-height:1.5}
+.svc-meta{display:flex;align-items:center;justify-content:space-between;margin-top:9px;font-size:.8rem;color:var(--mut);font-weight:600}
+.svc-go{color:var(--grn);font-weight:800}
+.svc-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(0,214,143,.06);border:1px solid rgba(0,214,143,.25);border-radius:12px;padding:10px 14px;margin-bottom:12px}
+.svc-bar .svc-lbl{display:block;font-size:.66rem;color:var(--grn);font-weight:800}
+.svc-bar .svc-name{display:block;font-size:.9rem;font-weight:800;color:var(--txt)}
+.svc-bar button{background:rgba(0,214,143,.15);border:1px solid rgba(0,214,143,.4);color:var(--grn);border-radius:9px;padding:7px 14px;font-size:.78rem;font-weight:700}
+/* services edit (admin) */
+.svc-edit{background:var(--surf);border:1px solid var(--brd);border-radius:12px;padding:12px;margin-bottom:10px}
+.svc-edit-top{display:flex;align-items:center;gap:8px}
+.svc-edit-top .se-name{flex:1;min-width:0}
+.svc-edit-row{display:flex;align-items:center;gap:14px;margin:9px 0}
+.se-free-lbl{display:flex;align-items:center;gap:6px;font-size:.8rem;color:var(--mut);font-weight:600;cursor:pointer}
+.se-del{background:rgba(255,107,107,.08);border:1px solid rgba(255,107,107,.3);border-radius:8px;padding:7px 9px;font-size:.85rem;cursor:pointer}
+.svc-edit input[type=text],.svc-edit .se-name,.svc-edit .se-desc{width:100%;background:var(--surf2);border:1px solid var(--brd);border-radius:9px;padding:9px 11px;color:var(--txt);font-family:inherit;font-size:.85rem}
+.svc-edit .se-dur{background:var(--surf2);border:1px solid var(--brd);border-radius:9px;padding:8px 10px;color:var(--txt);font-family:inherit}
+.switch.sm{transform:scale(.85)}
 .date-group{font-size:.76rem;color:var(--mut);font-weight:800;margin:18px 0 9px;display:flex;align-items:center;gap:10px}
 .date-group::after{content:'';flex:1;height:1px;background:var(--brd)}
 
@@ -342,7 +366,7 @@ const MONTHS = ['ינואר','פברואר','מרץ','אפריל','מאי','יו
 let state = null;          // {slots:{date:[times]}, slotMin, phone}
 let view = 'cal';
 let calMonth = null;
-let selDate = null, selTime = null, lastBooking = null, reschedId = null;
+let selDate = null, selTime = null, lastBooking = null, reschedId = null, reschedDur = null;
 let isAdmin = false, adminKey = localStorage.getItem('aviel_admin_key') || '';
 let adminData = null;      // {bookings, avail, settings}
 let adminTab = 'pending';
@@ -360,6 +384,42 @@ const esc = s => String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>
 function toast(msg){
   const t=$('#toast'); t.textContent=msg; t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'),2600);
+}
+
+/* ---------- services / slot compute ---------- */
+function ensureServices(){
+  if(!state) return;
+  if(!Array.isArray(state.services) || !state.services.length){
+    state.services = [{id:'s1', name:'אימון אישי', dur: state.slotMin||60, desc:'', free:false, on:true}];
+  }
+  state.services = state.services.filter(s=>s.on!==false);
+  if(!state._service || !state.services.find(s=>s.id===state._service.id))
+    state._service = state.services[0];
+}
+function curDur(){
+  if(reschedId && reschedDur) return reschedDur;
+  return (state._service && state._service.dur) || state.slotMin || 60;
+}
+// שעות פנויות לתאריך עבור משך נתון — מודל windows+busy, עם נפילה ל-slots ישן
+function computeSlots(date, dur){
+  if(!state.avail){ return state.slots ? (state.slots[date]||[]) : []; }
+  const win = state.avail[date]; if(!win) return [];
+  const busy = (state.busy && state.busy[date]) || [];
+  const buf = state.bufferMin||0;
+  const noticeMs = (state.minNoticeH||0)*3600000;
+  const now = Date.now();
+  const tm = t=>{const a=String(t).split(':');return (+a[0])*60+(+a[1]||0);};
+  const fm = m=>pad(Math.floor(m/60))+':'+pad(m%60);
+  const ws=tm(win.start), we=tm(win.end), out=[];
+  for(let cur=ws; cur+dur<=we; cur+=dur+buf){
+    const st=cur, en=cur+dur;
+    const slot=parseDate(date); slot.setHours(Math.floor(cur/60), cur%60, 0, 0);
+    if(slot.getTime()-now <= noticeMs) continue;
+    let free=true;
+    for(const b of busy){ const bs=tm(b.t)-buf, be=tm(b.t)+b.d+buf; if(st<be && en>bs){ free=false; break; } }
+    if(free) out.push(fm(cur));
+  }
+  return out;
 }
 
 function launchConfetti(){
@@ -430,14 +490,22 @@ function demoApi(p){
     slots[fmtDate(d)] = d.getDay()===5 ? ['07:00','08:00','09:00','10:00','11:00'] : ['07:00','08:00','09:00','10:00','11:00','12:00','13:00','14:00'];
   }
   const a = p.action;
-  if(a==='state') return Promise.resolve({ok:true, slots, slotMin:60, phone:'972500000000'});
+  if(a==='state'){
+    const avail={}, busy={};
+    Object.keys(slots).forEach(d=>{ avail[d]={start:'07:00',end:'15:00'}; busy[d]=[]; });
+    return Promise.resolve({ok:true, slots, avail, busy, slotMin:60, bufferMin:0, minNoticeH:3, maxDaysAhead:60, phone:'972500000000',
+      services:[
+        {id:'s1',name:'אימון היכרות',dur:30,desc:'פגישת היכרות ראשונה — בלי התחייבות',free:true,on:true},
+        {id:'s2',name:'אימון אישי',dur:60,desc:'אימון אחד-על-אחד מלא',free:false,on:true}
+      ]});
+  }
   if(a==='book') return Promise.resolve({ok:true, id:'demo'+Date.now()});
   if(a==='status') return Promise.resolve({ok:true, bookings:{}});
   if(a==='admin'){
     if(p.op==='list') return Promise.resolve({ok:true, bookings:[
       {id:'d1',date:fmtDate(new Date(t.getTime()+2*864e5)),time:'08:00',name:'דני כהן',phone:'0521234567',email:'a@b.com',note:'כתף רגישה',status:'pending',createdAt:''},
       {id:'d2',date:fmtDate(new Date(t.getTime()+3*864e5)),time:'10:00',name:'רון לוי',phone:'0529876543',email:'c@d.com',note:'',status:'approved',createdAt:''}
-    ], avail: Object.fromEntries(Object.keys(slots).map(d=>[d,{start:'07:00',end:'15:00'}])), settings:{slotMin:60,bufferMin:0,minNoticeH:3,phone:'',meetLink:'',weekTemplate:[{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'12:00'},{on:false,start:'07:00',end:'12:00'}]}});
+    ], avail: Object.fromEntries(Object.keys(slots).map(d=>[d,{start:'07:00',end:'15:00'}])), settings:{slotMin:60,bufferMin:0,minNoticeH:3,maxDaysAhead:60,phone:'',meetLink:'',services:[{id:'s1',name:'אימון היכרות',dur:30,desc:'בלי התחייבות',free:true,on:true},{id:'s2',name:'אימון אישי',dur:60,desc:'',free:false,on:true}],weekTemplate:[{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'12:00'},{on:false,start:'07:00',end:'12:00'}]}});
     if(p.op==='listSummaries') return Promise.resolve({ok:true, summaries:[]});
     if(p.op==='saveSummary') return Promise.resolve({ok:true, sent:!!p.send});
     return Promise.resolve({ok:true, msg:'בוצע (דמו)'});
@@ -447,7 +515,8 @@ function demoApi(p){
 
 /* ---------- client: calendar ---------- */
 function monthsWithSlots(){
-  const set = new Set(Object.keys(state.slots).map(d=>d.slice(0,7)));
+  const keys = Object.keys(state.avail || state.slots || {});
+  const set = new Set(keys.map(d=>d.slice(0,7)));
   const now = new Date(); set.add(`${now.getFullYear()}-${pad(now.getMonth()+1)}`);
   return [...set].sort();
 }
@@ -463,11 +532,15 @@ function renderCal(){
   // Build next-meeting banner from localStorage
   const nextMtg = state._nextMeeting || null;
 
+  const dur = curDur();
+  const multiSvc = (state.services||[]).length>1 && !reschedId;
+  const svcName = reschedId ? '' : ((state._service&&state._service.name)||'');
+
   let cells = '';
   for(let i=0;i<first.getDay();i++) cells += '<span></span>';
   for(let d=1; d<=dim; d++){
     const ds = `${ym}-${pad(d)}`;
-    const n = (state.slots[ds]||[]).length;
+    const n = ds>=today ? computeSlots(ds, dur).length : 0;
     const avail = n>0 && ds>=today;
     cells += `<button class="day ${avail?'avail':'off'} ${ds===today?'today':''}" ${avail?`data-d="${ds}"`:'disabled'}>
       <span>${d}</span>${avail?`<span class="n-slots">${n} פנויות</span>`:''}</button>`;
@@ -484,9 +557,13 @@ function renderCal(){
       </div>` : ''}
       ${reschedId ? `<div class="resched-banner"><span>🔄 בוחרים מועד חדש לפגישה — היום והשעה הנוכחיים ישוחררו</span><button id="cancelResched">ביטול</button></div>` : ''}
       ${stepper(1)}
+      ${svcName ? `<div class="svc-bar">
+        <div><span class="svc-lbl">סוג הפגישה</span><span class="svc-name">${esc(svcName)} · ${dur} דק'</span></div>
+        ${multiSvc?`<button id="changeSvc">שינוי</button>`:''}
+      </div>` : ''}
       <div class="card">
         <h2>באיזה יום מתאים לך ?</h2>
-        <div class="hint">פגישה של ${state.slotMin} דקות · רואים רק ימים שאביאל פתח</div>
+        <div class="hint">פגישה של ${dur} דקות · רואים רק ימים שאביאל פתח</div>
         <div class="cal-head">
           <button class="cal-nav" id="prevM" ${idx>0?'':'disabled'}>›</button>
           <b>${MONTHS[m]} ${y}</b>
@@ -516,8 +593,40 @@ function renderCal(){
   $('#nextM').onclick = ()=>{ const [ny,nm]=months[idx+1].split('-'); calMonth=new Date(+ny,+nm-1,1); render(); };
   $('#mineBtn').onclick = ()=>{ view='mine'; render(); };
   const tb = $('#trainerBtn'); if(tb) tb.onclick = ()=> $('#adminBtn').click();
-  const cr = $('#cancelResched'); if(cr) cr.onclick = ()=>{ reschedId=null; render(); };
+  const cr = $('#cancelResched'); if(cr) cr.onclick = ()=>{ reschedId=null; reschedDur=null; render(); };
   const gm = $('#goMine'); if(gm) gm.onclick = ()=>{ view='mine'; render(); };
+  const cs = $('#changeSvc'); if(cs) cs.onclick = ()=>{ view='service'; render(); };
+}
+
+/* ---------- client: service picker ---------- */
+function renderService(){
+  ensureServices();
+  const svcs = state.services||[];
+  app.innerHTML = `
+    <div class="view">
+      <div class="card">
+        <h2>איזו פגישה תרצה/י לקבוע ?</h2>
+        <div class="hint">בוחרים סוג — וממשיכים ליום ולשעה</div>
+        <div class="svc-list">
+          ${svcs.map(s=>`
+            <button class="svc-card" data-s="${esc(s.id)}">
+              <div class="svc-top">
+                <span class="svc-card-name">${esc(s.name)}</span>
+                ${s.free?'<span class="svc-free">חינם</span>':''}
+              </div>
+              ${s.desc?`<div class="svc-desc">${esc(s.desc)}</div>`:''}
+              <div class="svc-meta">🕐 ${s.dur} דקות <span class="svc-go">בחר/י ←</span></div>
+            </button>`).join('')}
+        </div>
+      </div>
+      <button class="foot-link" id="mineBtn2">הפגישות שלי</button>
+    </div>
+  `;
+  app.querySelectorAll('[data-s]').forEach(b=> b.onclick=()=>{
+    state._service = svcs.find(s=>s.id===b.dataset.s) || svcs[0];
+    view='cal'; render();
+  });
+  const mb=$('#mineBtn2'); if(mb) mb.onclick=()=>{ view='mine'; render(); };
 }
 
 function stepper(n){
@@ -530,7 +639,7 @@ function stepper(n){
 
 /* ---------- client: slots ---------- */
 function renderSlots(){
-  const slots = state.slots[selDate]||[];
+  const slots = computeSlots(selDate, curDur());
   const groups = [
     ['☀️ בוקר', slots.filter(t=>t<'12:00')],
     ['🌤️ צהריים ואחה״צ', slots.filter(t=>t>='12:00'&&t<'17:00')],
@@ -586,8 +695,9 @@ function renderForm(){
         <h2>עוד רגע סוגרים 💪</h2>
         <div class="hint">הבקשה נשלחת לאביאל לאישור — ברגע שיאשר, זימון ליומן אצלך במייל</div>
         <div class="summary">
+          ${state._service&&!reschedId?`<span>🏷️ <b>${esc(state._service.name)}</b></span>`:''}
           <span>📅 <b>${heDate(selDate)}</b></span>
-          <span>🕐 <b>${selTime}</b> · פגישה של ${state.slotMin} דקות</span>
+          <span>🕐 <b>${selTime}</b> · פגישה של ${curDur()} דקות</span>
         </div>
         <div class="field"><label>שם מלא <span class="req">*</span></label>
           <input id="fName" placeholder="ישראל ישראלי" autocomplete="name" value="${esc(saved.name||'')}"></div>
@@ -623,7 +733,7 @@ async function confirmBooking(){
 
   const btn=$('#confirm'); btn.disabled=true; btn.innerHTML='שולח בקשה<span class="spin"></span>';
   try{
-    const res = await apiPost({action:'book', date:selDate, time:selTime, name, phone, email, note});
+    const res = await apiPost({action:'book', date:selDate, time:selTime, name, phone, email, note, serviceId:(state._service&&state._service.id)||''});
     if(!res.ok){
       btn.disabled=false; btn.textContent='שליחת בקשה לאישור ←';
       if(res.error==='slot_taken'){ toast('אופס — השעה נתפסה הרגע. בחר שעה אחרת'); await refreshState(); view='slots'; render(); }
@@ -671,7 +781,7 @@ function renderDone(){
     </div>
   `;
   launchConfetti();
-  $('#dlIcs').onclick=()=>downloadIcs(bk.date, bk.time, state.slotMin||40);
+  $('#dlIcs').onclick=()=>downloadIcs(bk.date, bk.time, (bk.dur||curDur()));
   $('#mine').onclick=()=>{ view='mine'; render(); };
   $('#home').onclick=async()=>{ await refreshState(); selDate=selTime=null; view='cal'; render(); };
 }
@@ -703,11 +813,11 @@ async function renderMine(){
           const confChip = b.status==='approved' && b.confirmed ? '<span class="cf-badge cf-yes">✅ אישרת הגעה</span>' : '';
           return `
           <div class="bk">
-            <div class="info"><b>${heDate(b.date)} · ${b.time}</b><div class="mut">${esc(b.name)}</div>${confChip}</div>
+            <div class="info"><b>${heDate(b.date)} · ${b.time}</b><div class="mut">${b.serviceName?esc(b.serviceName)+' · ':''}${esc(b.name)}</div>${confChip}</div>
             <div class="acts">
               <span class="chip-st st-${b.status}">${ST_LABEL[b.status]||b.status}</span>
               ${canConfirm?`<button class="mini ok" data-cf="${b.id}">✅ אשר הגעה</button>`:''}
-              <button class="mini wa" data-re="${b.id}">🔄 שינוי</button>
+              <button class="mini wa" data-re="${b.id}" data-dur="${b.dur||''}">🔄 שינוי</button>
               <button class="mini del" data-id="${b.id}">ביטול</button>
             </div>
           </div>`;}).join('') : '<div class="empty">אין פגישות קרובות</div>'}
@@ -721,7 +831,7 @@ async function renderMine(){
   `;
   $('#back').onclick=()=>{ view='cal'; render(); };
   app.querySelectorAll('[data-re]').forEach(b=> b.onclick=()=>{
-    reschedId=b.dataset.re; view='cal'; render();
+    reschedId=b.dataset.re; reschedDur=+b.dataset.dur||null; view='cal'; render();
   });
   app.querySelectorAll('[data-cf]').forEach(b=> b.onclick=async()=>{
     b.disabled=true; b.innerHTML='שולח<span class="spin"></span>';
@@ -811,8 +921,8 @@ function renderPending(el){
       <div class="hint">באישור — אירוע נכנס ליומן שלך והמוזמן מקבל זימון למייל (כולל קישור הפגישה אם הוגדר)</div>
       ${list.length ? list.map(b=>`
         <div class="pend">
-          <div class="who">${esc(b.name)}</div>
-          <div class="when">📅 ${heDate(b.date)} · ${b.time}</div>
+          <div class="who">${esc(b.name)}${b.serviceName?` <span class="cf-badge cf-wait" style="font-weight:700">${esc(b.serviceName)}</span>`:''}</div>
+          <div class="when">📅 ${heDate(b.date)} · ${b.time}${b.dur?` · ${b.dur} דק'`:''}</div>
           <div class="meta">📞 ${esc(b.phone)} · ✉️ ${esc(b.email)}${b.note?`<br>📝 ${esc(b.note)}`:''}</div>
           <div class="btn-row">
             <button class="btn mini ok" data-ok="${b.id}" style="padding:11px">✓ אשר ושלח זימון</button>
@@ -860,7 +970,7 @@ function renderDiary(el){
     const stkChip = stk>=3 ? `<span class="cf-badge cf-yes" style="background:rgba(255,138,92,.12);color:#ff8a5c;border-color:rgba(255,138,92,.4)">🔥 רצף ${stk}</span>` : '';
     const msg = `היי ${b.name}! מזכיר לך — פגישה ${heDate(b.date)} בשעה ${b.time} 🤝 נתראה !`;
     return `<div class="bk">
-      <div class="info"><b>${b.time}</b> · ${esc(b.name)}<div class="mut">${esc(b.phone)}${b.note?' · '+esc(b.note):''}</div>${cf}${stkChip}</div>
+      <div class="info"><b>${b.time}</b> · ${esc(b.name)}<div class="mut">${b.serviceName?esc(b.serviceName)+' · ':''}${esc(b.phone)}${b.note?' · '+esc(b.note):''}</div>${cf}${stkChip}</div>
       <div class="acts">
         <a href="${waLink(b,msg)}" target="_blank"><button class="mini wa">💬</button></a>
         <button class="mini del" data-id="${b.id}">✕</button>
@@ -1175,9 +1285,32 @@ function renderAvail(el){
 
 }
 
+function svcRowHtml(sv){
+  const durOpts=[15,20,30,40,45,50,60,75,90,120];
+  return `<div class="svc-edit" data-id="${esc(sv.id||'')}">
+    <div class="svc-edit-top">
+      <input class="se-name" value="${esc(sv.name||'')}" placeholder="שם הסוג (למשל: אימון היכרות)">
+      <label class="switch sm"><input type="checkbox" class="se-on" ${sv.on!==false?'checked':''}><i></i></label>
+      <button class="se-del" title="מחק">🗑️</button>
+    </div>
+    <div class="svc-edit-row">
+      <select class="se-dur">${durOpts.map(v=>`<option value="${v}" ${(+sv.dur||60)===v?'selected':''}>${v} דק'</option>`).join('')}</select>
+      <label class="se-free-lbl"><input type="checkbox" class="se-free" ${sv.free?'checked':''}> פגישת חינם 🎁</label>
+    </div>
+    <input class="se-desc" value="${esc(sv.desc||'')}" placeholder="תיאור קצר שהלקוח יראה (לא חובה)">
+  </div>`;
+}
+
 function renderCfg(el){
   const s=adminData.settings;
+  const svcs = (s.services&&s.services.length)?s.services:[{id:'s1',name:'אימון אישי',dur:s.slotMin||60,desc:'',free:false,on:true}];
   el.innerHTML = `
+    <div class="card">
+      <h2>🏷️ סוגי פגישות</h2>
+      <div class="hint">הלקוח בוחר סוג לפני שקובע — כל סוג עם משך משלו. סמן "חינם" לפגישת היכרות = מנוע לידים.</div>
+      <div id="svcEdit">${svcs.map(svcRowHtml).join('')}</div>
+      <button class="btn btn-ghost" id="svcAdd" style="margin-top:4px">+ הוסף סוג פגישה</button>
+    </div>
     <div class="card">
       <h2>השעות הקבועות שלך</h2>
       <div class="hint">התבנית שלפיה נפתח חודש שלם בלחיצה אחת (בטאב זמינות)</div>
@@ -1238,26 +1371,55 @@ function renderCfg(el){
         <label class="switch"><input type="checkbox" id="cReqC" ${s.reqConfirm!==false?'checked':''}><i></i></label>
         <span class="name" style="flex:1">בקש אישור הגעה</span>
       </div>
-      <div class="note" style="margin-top:2px">הלקוח מאשר בלחיצה — אתה רואה ביומן מי אישר ומקבל SMS</div>
+      <div class="note" style="margin:2px 0 12px">הלקוח מאשר בלחיצה — אתה רואה ביומן מי אישר ומקבל SMS</div>
+      <div class="wk ${s.checkCalendar!==false?'':'off-row'}" id="calcRow">
+        <label class="switch"><input type="checkbox" id="cCheckCal" ${s.checkCalendar!==false?'checked':''}><i></i></label>
+        <span class="name" style="flex:1">בדיקת התנגשויות מול היומן</span>
+      </div>
+      <div class="note" style="margin-top:2px">לא יציע ללקוחות שעות שכבר תפוסות באירועים ביומן גוגל שלך — בלי כפל הזמנות</div>
     </div>
   `;
-  ['rem1Row','rem2Row','reqcRow'].forEach(id=>{ const r=$('#'+id); if(r) r.querySelector('input[type=checkbox]').onchange=e=>r.classList.toggle('off-row',!e.target.checked); });
+  ['rem1Row','rem2Row','reqcRow','calcRow'].forEach(id=>{ const r=$('#'+id); if(r) r.querySelector('input[type=checkbox]').onchange=e=>r.classList.toggle('off-row',!e.target.checked); });
   el.querySelectorAll('.wk input[type=checkbox]').forEach(c=> c.onchange=e=>{
     e.target.closest('.wk').classList.toggle('off-row',!e.target.checked);
   });
+  // services CRUD
+  const svcWrap=$('#svcEdit');
+  function bindSvcDel(){ svcWrap.querySelectorAll('.se-del').forEach(b=> b.onclick=()=>{
+    if(svcWrap.querySelectorAll('.svc-edit').length<=1) return toast('חייב סוג פגישה אחד לפחות');
+    b.closest('.svc-edit').remove();
+  }); }
+  bindSvcDel();
+  $('#svcAdd').onclick=()=>{
+    const tmp=document.createElement('div');
+    tmp.innerHTML=svcRowHtml({id:'s'+Date.now()+Math.floor(Math.random()*999),name:'',dur:60,desc:'',free:false,on:true});
+    svcWrap.appendChild(tmp.firstElementChild); bindSvcDel();
+  };
+  function collectServices(){
+    return [...svcWrap.querySelectorAll('.svc-edit')].map(r=>({
+      id: r.dataset.id || ('s'+Date.now()+Math.floor(Math.random()*999)),
+      name: r.querySelector('.se-name').value.trim()||'פגישה',
+      dur: +r.querySelector('.se-dur').value,
+      desc: r.querySelector('.se-desc').value.trim(),
+      free: r.querySelector('.se-free').checked,
+      on: r.querySelector('.se-on').checked
+    }));
+  }
   $('#saveCfg').onclick=async()=>{
     const week=[...el.querySelectorAll('.wk')].map(row=>({
       on: row.querySelector('input[type=checkbox]').checked,
       start: row.querySelector('.t-start').value,
       end: row.querySelector('.t-end').value
     }));
-    const settings={slotMin:+$('#cSlot').value, bufferMin:+$('#cBuffer').value, minNoticeH:+$('#cNotice').value,
+    const services=collectServices();
+    const settings={slotMin:(services[0]&&services[0].dur)||+$('#cSlot').value, bufferMin:+$('#cBuffer').value, minNoticeH:+$('#cNotice').value,
       maxDaysAhead:+$('#cMaxDays').value,
       phone:$('#cPhone').value.replace(/\D/g,''), meetLink:$('#cMeet').value.trim(),
       twilioSid:$('#cTwSid').value.trim(), twilioToken:$('#cTwToken').value.trim(), twilioFrom:$('#cTwFrom').value.trim(),
       remind1On:$('#cR1On').checked, remind1H:+$('#cR1H').value,
       remind2On:$('#cR2On').checked, remind2H:+$('#cR2H').value,
-      reqConfirm:$('#cReqC').checked,
+      reqConfirm:$('#cReqC').checked, checkCalendar:$('#cCheckCal')?$('#cCheckCal').checked:true,
+      services:services,
       weekTemplate:week};
     const btn=$('#saveCfg'); btn.disabled=true; btn.innerHTML='שומר<span class="spin"></span>';
     await adminOp('saveSettings',{settings});
@@ -1269,11 +1431,18 @@ function renderCfg(el){
 
 /* ---------- shared ---------- */
 async function refreshState(){
-  try{ const r=await apiGet({action:'state'}); if(r.ok) state=r; }catch(e){}
+  try{
+    const prevSvcId = state && state._service && state._service.id;
+    const prevNext = state && state._nextMeeting;
+    const r=await apiGet({action:'state'});
+    if(r.ok){ state=r; if(prevNext) state._nextMeeting=prevNext; ensureServices();
+      if(prevSvcId){ const s=(state.services||[]).find(x=>x.id===prevSvcId); if(s) state._service=s; } }
+  }catch(e){}
 }
 
 function render(){
-  if(view==='cal') renderCal();
+  if(view==='service') renderService();
+  else if(view==='cal') renderCal();
   else if(view==='slots') renderSlots();
   else if(view==='form') renderForm();
   else if(view==='done') renderDone();
@@ -1303,10 +1472,14 @@ $('#adminBtn').onclick = async ()=>{
       <button class="btn btn-ghost" onclick="location.reload()">רענון</button>`;
     return;
   }
+  ensureServices();
   const now=new Date();
-  const firstSlotMonth = Object.keys(state.slots).sort()[0];
+  const availKeys = Object.keys(state.avail || state.slots || {}).sort();
+  const firstSlotMonth = availKeys[0];
   calMonth = firstSlotMonth ? new Date(+firstSlotMonth.slice(0,4), +firstSlotMonth.slice(5,7)-1, 1)
                             : new Date(now.getFullYear(), now.getMonth(), 1);
+  // אם יש כמה סוגי פגישות — מתחילים בבחירת סוג
+  if((state.services||[]).length>1 && view==='cal') view='service';
   // כניסת מאמן ישירה: ?admin=1
   if(new URLSearchParams(location.search).get('admin') && adminKey){
     if(await loadAdmin()){ isAdmin=true; view='admin'; }

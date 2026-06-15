@@ -31,6 +31,10 @@ var DEFAULT_SETTINGS = {
   remind2On: true,
   remind2H: 3,
   reqConfirm: true,
+  checkCalendar: true,
+  services: [
+    { id: 's1', name: 'אימון אישי', dur: 60, desc: 'אימון אחד-על-אחד', free: false, on: true }
+  ],
   weekTemplate: [
     {on:true,  start:'07:00', end:'15:00'},
     {on:true,  start:'07:00', end:'15:00'},
@@ -61,7 +65,7 @@ function sheet_(name, headers) {
   }
   return sh;
 }
-var BK_HEAD = ['id','date','time','name','phone','email','note','status','createdAt','eventId','confirmed','r1','r2'];
+var BK_HEAD = ['id','date','time','name','phone','email','note','status','createdAt','eventId','confirmed','r1','r2','serviceId','serviceName','dur'];
 var SUM_HEAD = ['id','bookingId','date','clientName','clientEmail','measurements','homeworkClient','homeworkTrainer','changes','requests','updates','createdAt','sentAt'];
 function bkSheet_()  { return sheet_('בקשות ופגישות', BK_HEAD); }
 function avSheet_()  { return sheet_('זמינות', ['date','start','end']); }
@@ -95,13 +99,18 @@ function getSettings_() {
   var rows = rows_(cfgSheet_(), ['key','value']);
   var s = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
   var NUMS = {slotMin:1, minNoticeH:1, bufferMin:1, maxDaysAhead:1, remind1H:1, remind2H:1};
-  var BOOLS = {remind1On:1, remind2On:1, reqConfirm:1};
+  var BOOLS = {remind1On:1, remind2On:1, reqConfirm:1, checkCalendar:1};
   rows.forEach(function (r) {
     if (r.key === 'weekTemplate') { try { s.weekTemplate = JSON.parse(r.value); } catch (e) {} }
+    else if (r.key === 'services') { try { s.services = JSON.parse(r.value); } catch (e) {} }
     else if (NUMS[r.key]) s[r.key] = Number(r.value);
     else if (BOOLS[r.key]) s[r.key] = String(r.value) === 'true';
     else if (r.key) s[r.key] = String(r.value);
   });
+  // תאימות לאחור: אם אין שירותים מוגדרים — צור אחד מ-slotMin
+  if (!s.services || !s.services.length) {
+    s.services = [{ id: 's1', name: 'אימון אישי', dur: s.slotMin || 60, desc: '', free: false, on: true }];
+  }
   return s;
 }
 function saveSettings_(s) {
@@ -122,6 +131,8 @@ function saveSettings_(s) {
   sh.appendRow(['remind2On', s.remind2On !== false]);
   sh.appendRow(['remind2H',  s.remind2H || 3]);
   sh.appendRow(['reqConfirm', s.reqConfirm !== false]);
+  sh.appendRow(['checkCalendar', s.checkCalendar !== false]);
+  sh.appendRow(['services', JSON.stringify(s.services || [])]);
   sh.appendRow(['weekTemplate', JSON.stringify(s.weekTemplate)]);
 }
 
@@ -177,21 +188,57 @@ function heDate_(dateStr) {
   return 'יום ' + DAY_NAMES[dow] + ', ' + d.getDate() + ' ב' + MONTHS[Number(Utilities.formatDate(d, TZ, 'M')) - 1];
 }
 
-function slotsFor_(dateStr, avail, settings, bookings) {
+function tmin_(t) { var a = String(t).split(':'); return parseInt(a[0], 10) * 60 + parseInt(a[1] || '0', 10); }
+function fmin_(m) { return ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2); }
+
+/* אינטרוולים תפוסים בתאריך: פגישות קיימות (לפי המשך שלהן) + אירועים ביומן גוגל */
+function busyFor_(dateStr, bookings, settings) {
+  var out = [];
+  bookings.forEach(function (b) {
+    if (b.date === dateStr && (b.status === 'pending' || b.status === 'approved')) {
+      var d = Number(b.dur) || settings.slotMin || 60;
+      out.push({ t: b.time, d: d });
+    }
+  });
+  if (settings.checkCalendar !== false) {
+    try {
+      var evs = CalendarApp.getDefaultCalendar().getEventsForDay(ilDate_(dateStr, '12:00'));
+      evs.forEach(function (ev) {
+        if (ev.isAllDayEvent()) return;
+        var s = tmin_(Utilities.formatDate(ev.getStartTime(), TZ, 'HH:mm'));
+        var e = tmin_(Utilities.formatDate(ev.getEndTime(), TZ, 'HH:mm'));
+        if (e > s) out.push({ t: fmin_(s), d: e - s, cal: 1 });
+      });
+    } catch (e) {}
+  }
+  return out;
+}
+
+/* האם פנוי להתחיל פגישה באורך dur ב-time בתאריך נתון */
+function freeAt_(dateStr, time, dur, avail, settings, bookings, busyCache) {
+  var win = avail[dateStr];
+  if (!win) return false;
+  var st = tmin_(time), en = st + dur;
+  if (st < tmin_(win.start) || en > tmin_(win.end)) return false;
+  if (ilDate_(dateStr, time) <= new Date(Date.now() + settings.minNoticeH * 3600000)) return false;
+  var buf = settings.bufferMin || 0;
+  var blocks = busyCache || busyFor_(dateStr, bookings, settings);
+  for (var i = 0; i < blocks.length; i++) {
+    var bs = tmin_(blocks[i].t) - buf, be = tmin_(blocks[i].t) + blocks[i].d + buf;
+    if (st < be && en > bs) return false;
+  }
+  return true;
+}
+
+/* רשימת שעות פנויות לתאריך עבור משך נתון */
+function slotsForDur_(dateStr, dur, avail, settings, bookings, busyCache) {
   var win = avail[dateStr];
   if (!win) return [];
-  var taken = {};
-  bookings.forEach(function (b) {
-    if (b.date === dateStr && (b.status === 'pending' || b.status === 'approved')) taken[b.time] = 1;
-  });
-  var minTime = new Date(Date.now() + settings.minNoticeH * 3600000);
-  var p = function (t) { return parseInt(t.split(':')[0], 10) * 60 + parseInt(t.split(':')[1], 10); };
-  var f = function (m) { return ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2); };
   var out = [];
-  var step = settings.slotMin + (settings.bufferMin || 0);
-  for (var cur = p(win.start); cur + settings.slotMin <= p(win.end); cur += step) {
-    var t = f(cur);
-    if (!taken[t] && ilDate_(dateStr, t) > minTime) out.push(t);
+  var step = dur + (settings.bufferMin || 0);
+  for (var cur = tmin_(win.start); cur + dur <= tmin_(win.end); cur += step) {
+    var t = fmin_(cur);
+    if (freeAt_(dateStr, t, dur, avail, settings, bookings, busyCache)) out.push(t);
   }
   return out;
 }
@@ -281,14 +328,31 @@ function publicState_() {
   var bookings = getBookings_();
   var today = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
   var maxD = Utilities.formatDate(new Date(Date.now() + (settings.maxDaysAhead || 60) * 864e5), TZ, 'yyyy-MM-dd');
-  var slots = {};
+  var services = (settings.services || []).filter(function (s) { return s.on !== false; });
+  var defDur = (services[0] && services[0].dur) || settings.slotMin || 60;
+
+  var openAvail = {}, busy = {}, slots = {};
   Object.keys(avail).forEach(function (d) {
-    if (d >= today && d <= maxD) {
-      var s = slotsFor_(d, avail, settings, bookings);
-      if (s.length) slots[d] = s;
-    }
+    if (d < today || d > maxD) return;
+    openAvail[d] = avail[d];
+    var blocks = busyFor_(d, bookings, settings);
+    busy[d] = blocks;
+    // slots תאימות לאחור: למשך השירות הראשון
+    var s = slotsForDur_(d, defDur, avail, settings, bookings, blocks);
+    if (s.length) slots[d] = s;
   });
-  return { ok: true, slots: slots, slotMin: settings.slotMin, phone: settings.phone };
+  return {
+    ok: true,
+    avail: openAvail,
+    busy: busy,
+    services: services,
+    slots: slots,            // legacy
+    slotMin: defDur,
+    bufferMin: settings.bufferMin || 0,
+    minNoticeH: settings.minNoticeH || 0,
+    maxDaysAhead: settings.maxDaysAhead || 60,
+    phone: settings.phone
+  };
 }
 
 function book_(b) {
@@ -298,8 +362,14 @@ function book_(b) {
     if (!b.name || !b.phone || !b.email || !b.date || !b.time) return { ok: false, error: 'missing fields' };
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(b.email)) return { ok: false, error: 'bad email' };
     var settings = getSettings_();
-    var free = slotsFor_(b.date, getAvail_(), settings, getBookings_());
-    if (free.indexOf(b.time) === -1) return { ok: false, error: 'slot_taken' };
+    // איתור השירות שנבחר (ברירת מחדל: הראשון הפעיל)
+    var svcs = (settings.services || []).filter(function (s) { return s.on !== false; });
+    var svc = null;
+    for (var i = 0; i < svcs.length; i++) if (svcs[i].id === b.serviceId) svc = svcs[i];
+    if (!svc) svc = svcs[0] || { id: 's1', name: 'אימון אישי', dur: settings.slotMin || 60 };
+    var dur = Number(svc.dur) || settings.slotMin || 60;
+
+    if (!freeAt_(b.date, b.time, dur, getAvail_(), settings, getBookings_())) return { ok: false, error: 'slot_taken' };
 
     var ph = String(b.phone).replace(/\D/g, '').slice(-7);
     var today = Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd');
@@ -311,10 +381,11 @@ function book_(b) {
 
     var id = 'bk' + Date.now() + Math.floor(Math.random() * 1000);
     bkSheet_().appendRow([id, b.date, b.time, b.name, b.phone, b.email, b.note || '', 'pending',
-      Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm'), '', '', '', '']);
+      Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm'), '', '', '', '', svc.id, svc.name, dur]);
 
+    b.serviceName = svc.name; b.dur = dur;
     notifyAviel_(id, b);
-    mailClient_(b, 'received');
+    mailClient_({ name: b.name, phone: b.phone, email: b.email, date: b.date, time: b.time, serviceName: svc.name, dur: dur }, 'received');
     return { ok: true, id: id };
   } finally {
     lock.releaseLock();
@@ -324,7 +395,7 @@ function book_(b) {
 function statusOf_(ids) {
   var map = {};
   getBookings_().forEach(function (b) {
-    if (ids.indexOf(b.id) !== -1) map[b.id] = { status: b.status, date: b.date, time: b.time, name: b.name, confirmed: b.confirmed === 'yes' };
+    if (ids.indexOf(b.id) !== -1) map[b.id] = { status: b.status, date: b.date, time: b.time, name: b.name, confirmed: b.confirmed === 'yes', serviceName: b.serviceName || '', dur: Number(b.dur) || 0 };
   });
   return { ok: true, bookings: map };
 }
@@ -347,14 +418,15 @@ function reschedule_(body) {
       return { ok: false, error: 'unauthorized' };
     if (bk.status !== 'pending' && bk.status !== 'approved') return { ok: false, error: 'bad status' };
     var settings = getSettings_();
-    var free = slotsFor_(body.date, getAvail_(), settings, getBookings_());
-    if (free.indexOf(body.time) === -1) return { ok: false, error: 'slot_taken' };
+    var dur = Number(bk.dur) || settings.slotMin || 60;
+    var others = getBookings_().filter(function (x) { return x.id !== bk.id; });
+    if (!freeAt_(body.date, body.time, dur, getAvail_(), settings, others)) return { ok: false, error: 'slot_taken' };
     if (bk.eventId) {
       try { CalendarApp.getDefaultCalendar().getEventById(bk.eventId).deleteEvent(); } catch (e) {}
     }
     setBookingFields_(bk._row, { date: body.date, time: body.time, status: 'pending', eventId: '', confirmed: '', r1: '', r2: '' });
     notifyAviel_(bk.id, { name: bk.name, phone: bk.phone, email: bk.email, date: body.date, time: body.time,
-      note: (bk.note ? bk.note + ' · ' : '') + '🔄 שינוי מועד' });
+      serviceName: bk.serviceName, dur: bk.dur, note: (bk.note ? bk.note + ' · ' : '') + '🔄 שינוי מועד' });
     return { ok: true };
   } finally {
     lock.releaseLock();
@@ -379,16 +451,19 @@ function approve_(id) {
   if (bk.status !== 'pending') return { ok: false, msg: 'הבקשה כבר טופלה (' + bk.status + ')' };
 
   var settings = getSettings_();
+  var dur = Number(bk.dur) || settings.slotMin || 60;
   var start = ilDate_(bk.date, bk.time);
-  var end = new Date(start.getTime() + settings.slotMin * 60000);
+  var end = new Date(start.getTime() + dur * 60000);
+  var svcLabel = bk.serviceName ? bk.serviceName : 'פגישה';
   var opts = {
-    description: 'טלפון: ' + bk.phone + (bk.note ? '\nהערה: ' + bk.note : '') +
+    description: 'טלפון: ' + bk.phone + (bk.serviceName ? '\nסוג: ' + bk.serviceName : '') +
+      (bk.note ? '\nהערה: ' + bk.note : '') +
       (settings.meetLink ? '\nקישור לפגישה: ' + settings.meetLink : '') + '\nנקבע דרך מערכת הזימונים',
     guests: bk.email, sendInvites: true
   };
   if (settings.meetLink) opts.location = settings.meetLink;
   var ev = CalendarApp.getDefaultCalendar().createEvent(
-    '📅 פגישה — ' + bk.name,
+    '📅 ' + svcLabel + ' — ' + bk.name,
     start, end, opts
   );
   setBookingFields_(bk._row, { status: 'approved', eventId: ev.getId() });
@@ -535,6 +610,7 @@ function notifyAviel_(id, b) {
   var inner =
     '<table dir="rtl" style="color:#eef0ff;font-size:.95rem;line-height:2">' +
     '<tr><td style="color:#8892b0;padding-left:14px">מתאמן</td><td><b>' + esc_(b.name) + '</b></td></tr>' +
+    (b.serviceName ? '<tr><td style="color:#8892b0">סוג</td><td><b>' + esc_(b.serviceName) + (b.dur ? ' · ' + b.dur + ' דק\'' : '') + '</b></td></tr>' : '') +
     '<tr><td style="color:#8892b0">מועד</td><td><b>' + heDate_(b.date) + ' · ' + b.time + '</b></td></tr>' +
     '<tr><td style="color:#8892b0">טלפון</td><td><a href="tel:' + esc_(b.phone) + '" style="color:#00d68f">' + esc_(b.phone) + '</a></td></tr>' +
     '<tr><td style="color:#8892b0">מייל</td><td>' + esc_(b.email) + '</td></tr>' +
@@ -551,10 +627,12 @@ function notifyAviel_(id, b) {
 }
 
 function dateBox_(bk, settings) {
+  var dur = Number(bk.dur) || settings.slotMin || 60;
   return '<div style="background:rgba(0,214,143,.12);border:2px solid #00d68f;border-radius:14px;padding:16px 20px;text-align:center;margin:16px 0">' +
+    (bk.serviceName ? '<div style="color:#eef0ff;font-size:.95rem;font-weight:bold;margin-bottom:6px">' + esc_(bk.serviceName) + '</div>' : '') +
     '<div style="color:#00d68f;font-size:.74rem;font-weight:bold;margin-bottom:5px;letter-spacing:.04em">מועד הפגישה</div>' +
     '<div style="color:#eef0ff;font-size:1.15rem;font-weight:bold">' + esc_(heDate_(bk.date)) + '</div>' +
-    '<div style="color:#00d68f;font-size:1.05rem;font-weight:bold;margin-top:3px">' + bk.time + ' · ' + settings.slotMin + ' דקות</div>' +
+    '<div style="color:#00d68f;font-size:1.05rem;font-weight:bold;margin-top:3px">' + bk.time + ' · ' + dur + ' דקות</div>' +
     '</div>';
 }
 
