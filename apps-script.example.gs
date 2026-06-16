@@ -33,7 +33,7 @@ var DEFAULT_SETTINGS = {
   reqConfirm: true,
   checkCalendar: true,
   services: [
-    { id: 's1', name: 'אימון אישי', dur: 60, desc: 'אימון אחד-על-אחד', free: false, on: true }
+    { id: 's1', name: 'אימון אישי', dur: 60, desc: 'אימון אחד-על-אחד', price: 0, free: false, on: true }
   ],
   weekTemplate: [
     {on:true,  start:'07:00', end:'15:00'},
@@ -67,10 +67,15 @@ function sheet_(name, headers) {
 }
 var BK_HEAD = ['id','date','time','name','phone','email','note','status','createdAt','eventId','confirmed','r1','r2','serviceId','serviceName','dur'];
 var SUM_HEAD = ['id','bookingId','date','clientName','clientEmail','measurements','homeworkClient','homeworkTrainer','changes','requests','updates','createdAt','sentAt'];
+var PAY_HEAD = ['id','phone','name','amount','sessions','note','date'];
 function bkSheet_()  { return sheet_('בקשות ופגישות', BK_HEAD); }
 function avSheet_()  { return sheet_('זמינות', ['date','start','end']); }
 function cfgSheet_() { return sheet_('הגדרות', ['key','value']); }
 function sumSheet_() { return sheet_('סיכומי פגישות', SUM_HEAD); }
+function paySheet_() { return sheet_('תשלומים', PAY_HEAD); }
+function getPayments_() {
+  return rows_(paySheet_(), PAY_HEAD).map(function (r) { r.date = normDate_(r.date); return r; });
+}
 function getSummaries_() {
   return rows_(sumSheet_(), SUM_HEAD).map(function (r) { r.date = normDate_(r.date); return r; });
 }
@@ -299,6 +304,8 @@ function doPost(e) {
     if (body.op === 'saveSettings')  { saveSettings_(body.settings); return json_({ ok: true }); }
     if (body.op === 'saveSummary')   return json_(saveSummary_(body));
     if (body.op === 'listSummaries') return json_({ ok: true, summaries: getSummaries_() });
+    if (body.op === 'addPayment')    return json_(addPayment_(body));
+    if (body.op === 'delPayment')    return json_(delPayment_(body.id));
   }
   return json_({ ok: false, error: 'unknown action' });
 }
@@ -435,7 +442,24 @@ function reschedule_(body) {
 
 /* ---------------- admin actions ---------------- */
 function adminList_() {
-  return { ok: true, bookings: getBookings_(), avail: getAvail_(), settings: getSettings_() };
+  return { ok: true, bookings: getBookings_(), avail: getAvail_(), settings: getSettings_(), payments: getPayments_() };
+}
+
+function addPayment_(body) {
+  var p = body.payment || {};
+  if (!p.phone) return { ok: false, error: 'missing phone' };
+  var id = 'pay' + Date.now();
+  paySheet_().appendRow([id, String(p.phone), p.name || '', Number(p.amount) || 0,
+    Number(p.sessions) || 0, p.note || '', Utilities.formatDate(new Date(), TZ, 'yyyy-MM-dd HH:mm')]);
+  return { ok: true, id: id, msg: 'התשלום נרשם ✓' };
+}
+
+function delPayment_(id) {
+  var all = getPayments_();
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].id === id) { paySheet_().deleteRow(all[i]._row); return { ok: true, msg: 'התשלום נמחק' }; }
+  }
+  return { ok: false, error: 'not found' };
 }
 
 function findBooking_(id) {

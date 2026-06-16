@@ -239,6 +239,22 @@ a{color:var(--grn)}
 .svc-edit input[type=text],.svc-edit .se-name,.svc-edit .se-desc{width:100%;background:var(--surf2);border:1px solid var(--brd);border-radius:9px;padding:9px 11px;color:var(--txt);font-family:inherit;font-size:.85rem}
 .svc-edit .se-dur{background:var(--surf2);border:1px solid var(--brd);border-radius:9px;padding:8px 10px;color:var(--txt);font-family:inherit}
 .switch.sm{transform:scale(.85)}
+.se-price-wrap{display:flex;align-items:center;gap:4px;color:var(--mut);font-size:.82rem;font-weight:700}
+.se-price{width:74px;background:var(--surf2);border:1px solid var(--brd);border-radius:9px;padding:8px 10px;color:var(--txt);font-family:inherit}
+/* CRM balance */
+.bal-panel{display:flex;gap:8px;margin:10px 0}
+.bal-box{flex:1;background:var(--surf);border:1px solid var(--brd);border-radius:12px;padding:11px 8px;text-align:center}
+.bal-box.hi{background:rgba(0,214,143,.08);border-color:rgba(0,214,143,.3)}
+.bal-box.low{background:rgba(255,107,107,.08);border-color:rgba(255,107,107,.35)}
+.bal-box b{display:block;font-size:1.3rem;font-weight:900;color:var(--grn)}
+.bal-box.low b{color:var(--red)}
+.bal-box span{font-size:.64rem;color:var(--mut);font-weight:700}
+.pay-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 11px;background:var(--surf);border:1px solid var(--brd);border-radius:10px;margin-bottom:7px;font-size:.82rem}
+.pay-row .pay-del{background:none;border:none;color:var(--mut);font-size:.85rem;cursor:pointer}
+.pay-form{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
+.pay-form input{flex:1;min-width:80px;background:var(--surf2);border:1px solid var(--brd);border-radius:9px;padding:9px 10px;color:var(--txt);font-family:inherit;font-size:.82rem}
+.remain-chip{background:rgba(0,214,143,.12);color:var(--grn);border:1px solid rgba(0,214,143,.4);font-size:.7rem;font-weight:800;border-radius:20px;padding:3px 9px;display:inline-block;margin-top:5px}
+.remain-chip.low{background:rgba(255,107,107,.1);color:var(--red);border-color:rgba(255,107,107,.4)}
 .date-group{font-size:.76rem;color:var(--mut);font-weight:800;margin:18px 0 9px;display:flex;align-items:center;gap:10px}
 .date-group::after{content:'';flex:1;height:1px;background:var(--brd)}
 
@@ -495,8 +511,8 @@ function demoApi(p){
     Object.keys(slots).forEach(d=>{ avail[d]={start:'07:00',end:'15:00'}; busy[d]=[]; });
     return Promise.resolve({ok:true, slots, avail, busy, slotMin:60, bufferMin:0, minNoticeH:3, maxDaysAhead:60, phone:'972500000000',
       services:[
-        {id:'s1',name:'אימון היכרות',dur:30,desc:'פגישת היכרות ראשונה — בלי התחייבות',free:true,on:true},
-        {id:'s2',name:'אימון אישי',dur:60,desc:'אימון אחד-על-אחד מלא',free:false,on:true}
+        {id:'s1',name:'אימון היכרות',dur:30,desc:'פגישת היכרות ראשונה — בלי התחייבות',price:0,free:true,on:true},
+        {id:'s2',name:'אימון אישי',dur:60,desc:'אימון אחד-על-אחד מלא',price:250,free:false,on:true}
       ]});
   }
   if(a==='book') return Promise.resolve({ok:true, id:'demo'+Date.now()});
@@ -505,7 +521,7 @@ function demoApi(p){
     if(p.op==='list') return Promise.resolve({ok:true, bookings:[
       {id:'d1',date:fmtDate(new Date(t.getTime()+2*864e5)),time:'08:00',name:'דני כהן',phone:'0521234567',email:'a@b.com',note:'כתף רגישה',status:'pending',createdAt:''},
       {id:'d2',date:fmtDate(new Date(t.getTime()+3*864e5)),time:'10:00',name:'רון לוי',phone:'0529876543',email:'c@d.com',note:'',status:'approved',createdAt:''}
-    ], avail: Object.fromEntries(Object.keys(slots).map(d=>[d,{start:'07:00',end:'15:00'}])), settings:{slotMin:60,bufferMin:0,minNoticeH:3,maxDaysAhead:60,phone:'',meetLink:'',services:[{id:'s1',name:'אימון היכרות',dur:30,desc:'בלי התחייבות',free:true,on:true},{id:'s2',name:'אימון אישי',dur:60,desc:'',free:false,on:true}],weekTemplate:[{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'12:00'},{on:false,start:'07:00',end:'12:00'}]}});
+    ], avail: Object.fromEntries(Object.keys(slots).map(d=>[d,{start:'07:00',end:'15:00'}])), settings:{slotMin:60,bufferMin:0,minNoticeH:3,maxDaysAhead:60,phone:'',meetLink:'',services:[{id:'s1',name:'אימון היכרות',dur:30,desc:'בלי התחייבות',price:0,free:true,on:true},{id:'s2',name:'אימון אישי',dur:60,desc:'',price:250,free:false,on:true}],weekTemplate:[{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'15:00'},{on:true,start:'07:00',end:'12:00'},{on:false,start:'07:00',end:'12:00'}]}, payments:[{id:'p1',phone:'0521234567',name:'דני כהן',amount:2500,sessions:10,note:'חבילת 10',date:fmtDate(new Date())}]});
     if(p.op==='listSummaries') return Promise.resolve({ok:true, summaries:[]});
     if(p.op==='saveSummary') return Promise.resolve({ok:true, sent:!!p.send});
     return Promise.resolve({ok:true, msg:'בוצע (דמו)'});
@@ -615,7 +631,7 @@ function renderService(){
                 ${s.free?'<span class="svc-free">חינם</span>':''}
               </div>
               ${s.desc?`<div class="svc-desc">${esc(s.desc)}</div>`:''}
-              <div class="svc-meta">🕐 ${s.dur} דקות <span class="svc-go">בחר/י ←</span></div>
+              <div class="svc-meta">🕐 ${s.dur} דקות ${s.free?'<b style="color:var(--grn)">· חינם</b>':(s.price>0?`· <b style="color:var(--txt)">₪${s.price}</b>`:'')} <span class="svc-go">בחר/י ←</span></div>
             </button>`).join('')}
         </div>
       </div>
@@ -695,7 +711,7 @@ function renderForm(){
         <h2>עוד רגע סוגרים 💪</h2>
         <div class="hint">הבקשה נשלחת לאביאל לאישור — ברגע שיאשר, זימון ליומן אצלך במייל</div>
         <div class="summary">
-          ${state._service&&!reschedId?`<span>🏷️ <b>${esc(state._service.name)}</b></span>`:''}
+          ${state._service&&!reschedId?`<span>🏷️ <b>${esc(state._service.name)}</b>${state._service.free?' · חינם':(state._service.price>0?` · ₪${state._service.price}`:'')}</span>`:''}
           <span>📅 <b>${heDate(selDate)}</b></span>
           <span>🕐 <b>${selTime}</b> · פגישה של ${curDur()} דקות</span>
         </div>
@@ -1030,12 +1046,18 @@ function clientStats(){
   adminData.bookings.forEach(b=>{
     const key = String(b.phone).replace(/\D/g,'').slice(-7);
     if(!key) return;
-    (by[key] || (by[key]={key, all:[]})).all.push(b);
+    (by[key] || (by[key]={key, all:[], pays:[]})).all.push(b);
+  });
+  (adminData.payments||[]).forEach(p=>{
+    const key = String(p.phone).replace(/\D/g,'').slice(-7);
+    if(!key) return;
+    (by[key] || (by[key]={key, all:[], pays:[]})).pays.push(p);
   });
   return Object.values(by).map(c=>{
+    c.all = c.all||[]; c.pays = c.pays||[];
     c.all.sort((a,b)=>(a.date+a.time).localeCompare(b.date+b.time));
-    const latest = c.all[c.all.length-1];
-    c.name=latest.name; c.email=latest.email; c.phone=latest.phone;
+    const latest = c.all[c.all.length-1] || {};
+    c.name=latest.name||''; c.email=latest.email||''; c.phone=latest.phone||'';
     c.completed = c.all.filter(b=>b.status==='completed').length;
     c.noshow    = c.all.filter(b=>b.status==='noshow').length;
     c.cancelled = c.all.filter(b=>b.status==='cancelled').length;
@@ -1051,6 +1073,13 @@ function clientStats(){
     let streak=0;
     for(const b of finished){ if(b.status==='completed') streak++; else break; }
     c.streak=streak;
+    // תשלומים / יתרה
+    c.pays = (c.pays||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    c.paid = c.pays.reduce((s,p)=>s+(+p.amount||0),0);
+    c.purchased = c.pays.reduce((s,p)=>s+(+p.sessions||0),0);
+    c.remaining = c.purchased>0 ? Math.max(0, c.purchased - c.met) : null;
+    if(!c.name && c.pays[0]) c.name=c.pays[0].name;
+    if(!c.phone && c.pays[0]) c.phone=c.pays[0].phone;
     return c;
   }).sort((a,b)=> (b.next?1:0)-(a.next?1:0) || b.met-a.met || b.completed-a.completed);
 }
@@ -1081,6 +1110,24 @@ function renderClients(el){
         </div>
       </div>
       <div class="card">
+        <h2>💳 תשלומים ויתרה</h2>
+        <div class="bal-panel">
+          <div class="bal-box hi"><b>₪${c.paid}</b><span>סה"כ שולם</span></div>
+          ${c.remaining!==null?`<div class="bal-box ${c.remaining<=1?'low':''}"><b>${c.remaining}</b><span>אימונים נותרו</span></div>`:''}
+          <div class="bal-box"><b>${c.met}</b><span>נוצלו</span></div>
+        </div>
+        ${c.pays.length?c.pays.map(p=>`<div class="pay-row">
+          <span><b>₪${p.amount}</b>${+p.sessions?` · ${p.sessions} אימונים`:''}${p.note?' · '+esc(p.note):''}</span>
+          <span style="color:var(--mut);font-size:.72rem">${heDate(p.date)} <button class="pay-del" data-pay="${p.id}">🗑️</button></span>
+        </div>`).join(''):'<div class="hint" style="margin:6px 0">עדיין לא נרשמו תשלומים</div>'}
+        <div class="pay-form">
+          <input id="payAmt" type="number" inputmode="numeric" placeholder="סכום ₪">
+          <input id="paySess" type="number" inputmode="numeric" placeholder="כמה אימונים">
+          <input id="payNote" placeholder="הערה (חבילה...)">
+          <button class="btn btn-grn" id="payAdd" style="flex:1 0 100%;margin-top:4px">+ רישום תשלום</button>
+        </div>
+      </div>
+      <div class="card">
         <h2>היסטוריית פגישות (${hist.length})</h2>
         ${hist.map(b=>`<div class="bk">
           <div class="info"><b>${heDate(b.date)}</b> · ${b.time}<div class="mut">${b.note?esc(b.note):''}</div></div>
@@ -1088,6 +1135,17 @@ function renderClients(el){
         </div>`).join('')}
       </div>`;
     $('#cliBack').onclick=()=>{ cliSel=null; renderClients(el); };
+    $('#payAdd').onclick=async()=>{
+      const amount=+$('#payAmt').value||0, sessions=+$('#paySess').value||0, note=$('#payNote').value.trim();
+      if(!amount && !sessions) return toast('הזן סכום או מספר אימונים');
+      const btn=$('#payAdd'); btn.disabled=true; btn.innerHTML='שומר<span class="spin"></span>';
+      const r=await adminOp('addPayment',{payment:{phone:c.phone,name:c.name,amount,sessions,note}});
+      if(r.ok){ await loadAdmin(); renderClients(el); } else { btn.disabled=false; btn.textContent='+ רישום תשלום'; }
+    };
+    el.querySelectorAll('[data-pay]').forEach(b=> b.onclick=async()=>{
+      if(!confirm('למחוק את רישום התשלום ?')) return;
+      await adminOp('delPayment',{id:b.dataset.pay}); await loadAdmin(); renderClients(el);
+    });
     return;
   }
 
@@ -1107,6 +1165,7 @@ function renderClients(el){
         const chips=[];
         if(c.next) chips.push(`<span class="cli-chip go">📅 הבא: ${heDate(c.next.date)} ${c.next.time}</span>`);
         if(c.streak>=2) chips.push(`<span class="cli-chip fire">🔥 רצף ${c.streak}</span>`);
+        if(c.remaining!==null) chips.push(`<span class="cli-chip ${c.remaining<=1?'warn':''}">🎟️ נותרו ${c.remaining}</span>`);
         if(c.noshow) chips.push(`<span class="cli-chip warn">${c.noshow} לא-הגיע</span>`);
         return `<div class="bk cli-row" data-cli="${c.key}">
           <div class="info"><b>${esc(c.name)}</b><div class="mut">${c.met} אימונים${c.lastVisit?' · אחרון '+heDate(c.lastVisit):''}</div>
@@ -1295,7 +1354,8 @@ function svcRowHtml(sv){
     </div>
     <div class="svc-edit-row">
       <select class="se-dur">${durOpts.map(v=>`<option value="${v}" ${(+sv.dur||60)===v?'selected':''}>${v} דק'</option>`).join('')}</select>
-      <label class="se-free-lbl"><input type="checkbox" class="se-free" ${sv.free?'checked':''}> פגישת חינם 🎁</label>
+      <div class="se-price-wrap">₪ <input class="se-price" type="number" min="0" inputmode="numeric" value="${sv.price||0}" placeholder="מחיר"></div>
+      <label class="se-free-lbl"><input type="checkbox" class="se-free" ${sv.free?'checked':''}> חינם 🎁</label>
     </div>
     <input class="se-desc" value="${esc(sv.desc||'')}" placeholder="תיאור קצר שהלקוח יראה (לא חובה)">
   </div>`;
@@ -1400,6 +1460,7 @@ function renderCfg(el){
       id: r.dataset.id || ('s'+Date.now()+Math.floor(Math.random()*999)),
       name: r.querySelector('.se-name').value.trim()||'פגישה',
       dur: +r.querySelector('.se-dur').value,
+      price: +r.querySelector('.se-price').value||0,
       desc: r.querySelector('.se-desc').value.trim(),
       free: r.querySelector('.se-free').checked,
       on: r.querySelector('.se-on').checked
